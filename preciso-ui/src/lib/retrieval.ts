@@ -1,4 +1,4 @@
-import type { ParsedGraph, GraphNode, GraphEdge, RetrievalMode } from './graph-types';
+import type { ParsedGraph, GraphNode, GraphEdge, RetrievalMode, TextChunk } from './graph-types';
 import { embedBatch, cosineSimilarity } from './llm-providers';
 
 export type { RetrievalMode };
@@ -17,11 +17,15 @@ export interface RetrievalResult {
   /** Full entity set for the LLM context (seeds + neighborhood / edge endpoints) */
   nodeIds: string[];
   edges: GraphEdge[];
+  /** Source text excerpts tied to the retrieved entities/relations (needs a GRAPH_IS_HERE folder) */
+  chunks: TextChunk[];
   method: 'semantic' | 'lexical';
 }
 
 const TOP_K_NODES = 8;
 const TOP_K_EDGES = 12;
+const TOP_K_CHUNKS = 5;
+const MAX_CHUNK_CHARS = 800;
 const SEMANTIC_MIN_SCORE = 0.15;
 const MAX_CONTEXT_NODES = 40;
 const MAX_CONTEXT_EDGES = 60;
@@ -181,8 +185,45 @@ export async function retrieve(opts: {
     seedNodeIds,
     nodeIds: nodeIds.slice(0, MAX_CONTEXT_NODES),
     edges: [...edges.values()],
+    chunks: pickChunks(graph, query, queryTokens, seedNodes, seedEdges, mode),
     method: embed ? 'semantic' : 'lexical',
   };
+}
+
+// Source-text retrieval, mirroring how the backend attaches text chunks to
+// retrieved entities/relations (and, in mix mode, also scans chunks directly).
+// Chunks referenced by more seeds rank higher; lexical match breaks ties.
+function pickChunks(
+  graph: ParsedGraph,
+  query: string,
+  queryTokens: string[],
+  seedNodes: GraphNode[],
+  seedEdges: GraphEdge[],
+  mode: RetrievalMode,
+): TextChunk[] {
+  if (!graph.chunks) return [];
+
+  const refCount = new Map<string, number>();
+  const bump = (ids?: string[]) => ids?.forEach(id => {
+    if (graph.chunks![id]) refCount.set(id, (refCount.get(id) ?? 0) + 1);
+  });
+  seedNodes.forEach(n => bump(n.chunkIds));
+  seedEdges.forEach(e => bump(e.chunkIds));
+
+  // Mix mode also considers chunks that match the query text directly
+  if (mode === 'mix') {
+    for (const chunk of Object.values(graph.chunks)) {
+      if (!refCount.has(chunk.id) && lexicalScore(queryTokens, chunk.content) > 0) {
+        refCount.set(chunk.id, 0);
+      }
+    }
+  }
+
+  return [...refCount.entries()]
+    .map(([id, refs]) => ({ chunk: graph.chunks![id], refs, lex: lexicalScore(queryTokens, graph.chunks![id].content) }))
+    .sort((a, b) => (b.refs - a.refs) || (b.lex - a.lex))
+    .slice(0, TOP_K_CHUNKS)
+    .map(x => x.chunk);
 }
 
 // ── Context assembly ─────────────────────────────────────────────────────────
@@ -194,7 +235,7 @@ export interface GraphContext {
   refToNodeId: Record<string, string>;
 }
 
-export function buildContext(graph: ParsedGraph, nodeIds: string[], edges?: GraphEdge[]): GraphContext {
+export function buildContext(graph: ParsedGraph, nodeIds: string[], edges?: GraphEdge[], chunks?: TextChunk[]): GraphContext {
   const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
   let ids = [...new Set(nodeIds.filter(id => nodeMap.has(id)))];
   let edgePool = edges ?? graph.edges;
@@ -232,8 +273,14 @@ export function buildContext(graph: ParsedGraph, nodeIds: string[], edges?: Grap
   const refToNodeId: Record<string, string> = {};
   refOf.forEach((ref, id) => { refToNodeId[ref] = id; });
 
-  return {
-    text: `ENTITIES:\n${entityLines.join('\n')}\n\nRELATIONSHIPS:\n${edgeLines.join('\n') || '—'}`,
-    refToNodeId,
-  };
+  let text = `ENTITIES:\n${entityLines.join('\n')}\n\nRELATIONSHIPS:\n${edgeLines.join('\n') || '—'}`;
+  if (chunks?.length) {
+    const chunkLines = chunks.map(c => {
+      const body = c.content.length > MAX_CHUNK_CHARS ? `${c.content.slice(0, MAX_CHUNK_CHARS)}…` : c.content;
+      return `- (${c.id}${c.docId ? ` · ${c.docId}` : ''}) ${body}`;
+    });
+    text += `\n\nSOURCE TEXT:\n${chunkLines.join('\n')}`;
+  }
+
+  return { text, refToNodeId };
 }

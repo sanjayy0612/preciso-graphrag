@@ -1,6 +1,21 @@
 import { DOMParser } from '@xmldom/xmldom';
 import type { ParsedGraph, GraphNode, GraphEdge, EntityType } from './graph-types';
 
+// Preciso joins merged values with the GRAPH_FIELD_SEP token — clean for display
+const SEP = '<SEP>';
+
+function cleanText(s?: string): string | undefined {
+  if (!s) return undefined;
+  const parts = [...new Set(s.split(SEP).map(p => p.trim()).filter(Boolean))];
+  return parts.join(' ');
+}
+
+function splitIds(s?: string): string[] | undefined {
+  if (!s) return undefined;
+  const ids = s.split(SEP).map(p => p.trim()).filter(Boolean);
+  return ids.length ? ids : undefined;
+}
+
 export function parseGraphML(xmlText: string, sourceName?: string): ParsedGraph {
   const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
   const keys = doc.getElementsByTagName('key');
@@ -27,8 +42,9 @@ export function parseGraphML(xmlText: string, sourceName?: string): ParsedGraph 
       id,
       label: props.entity_name || props.label || props.name || id,
       type: (props.entity_type || props.type || 'CONCEPT') as EntityType,
-      description: props.description || props.desc,
+      description: cleanText(props.description || props.desc),
       sourceId: props.source_id || props.chunk_id,
+      chunkIds: splitIds(props.source_id || props.chunk_id),
       degree: 0,
     });
   }
@@ -47,9 +63,10 @@ export function parseGraphML(xmlText: string, sourceName?: string): ParsedGraph 
     }
     edges.push({
       source, target,
-      label: props.keywords || props.relation || props.label,
+      label: cleanText(props.keywords || props.relation || props.label),
       weight: parseFloat(props.weight) || 0.5,
-      description: props.description,
+      description: cleanText(props.description),
+      chunkIds: splitIds(props.source_id || props.chunk_id),
     });
   }
   const degreeMap: Record<string, number> = {};

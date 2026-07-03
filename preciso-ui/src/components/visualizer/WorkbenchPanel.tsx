@@ -190,7 +190,13 @@ export function WorkbenchPanel({
       ...result.nodeIds,
       ...manualEdges.flatMap(e => [endpointId(e.source), endpointId(e.target)]),
     ];
-    const ctx = buildContext(graph, allNodeIds, [...result.edges, ...manualEdges]);
+    // Manually pinned nodes contribute their source chunks too
+    const manualChunks = graph.chunks
+      ? manualIds.flatMap(id => graph.nodes.find(n => n.id === id)?.chunkIds ?? [])
+          .map(cid => graph.chunks![cid]).filter(Boolean)
+      : [];
+    const chunks = [...new Map([...manualChunks, ...result.chunks].map(c => [c.id, c])).values()];
+    const ctx = buildContext(graph, allNodeIds, [...result.edges, ...manualEdges], chunks);
     setRefMap(ctx.refToNodeId);
 
     autoIdsRef.current = result.seedNodeIds.filter(id => !manualSet.has(id));

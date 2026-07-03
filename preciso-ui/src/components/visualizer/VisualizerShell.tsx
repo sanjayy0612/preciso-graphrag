@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import type { ParsedGraph } from '@/lib/graph-types';
-import { parseGraphML } from '@/lib/graphml-parser';
+import { loadGraphFiles, filesFromDataTransfer } from '@/lib/graph-folder';
 import { WALMART_SAMPLE } from '@/lib/sample-graphs';
 import { SubBar } from './SubBar';
 import { GraphCanvas } from './GraphCanvas';
@@ -18,22 +18,22 @@ export function VisualizerShell() {
   const [legendOpen, setLegendOpen] = useState(true);
   const [citedNodeIds, setCitedNodeIds] = useState<string[]>([]);
 
-  // Drag-and-drop anywhere on the shell
-  function handleDrop(e: React.DragEvent) {
+  function loadGraph(g: ParsedGraph) {
+    setGraph(g);
+    setSelectedNodeId(null);
+    setContextNodeIds([]);
+    setCitedNodeIds([]);
+  }
+
+  // Drag-and-drop anywhere on the shell — accepts a lone .graphml or a whole
+  // GRAPH_IS_HERE/ folder (graphml + kv stores)
+  async function handleDrop(e: React.DragEvent) {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const parsed = parseGraphML(ev.target!.result as string, file.name.replace('.graphml', ''));
-        setGraph(parsed);
-        setSelectedNodeId(null);
-        setContextNodeIds([]);
-        setCitedNodeIds([]);
-      } catch (err) { console.error(err); }
-    };
-    reader.readAsText(file);
+    try {
+      const { files, folderName } = await filesFromDataTransfer(e.dataTransfer);
+      if (!files.length) return;
+      loadGraph(await loadGraphFiles(files, folderName));
+    } catch (err) { console.error(err); }
   }
 
   function handleNodeClick(nodeId: string) {
@@ -50,10 +50,13 @@ export function VisualizerShell() {
   }
 
   function handleLoadSample() {
-    setGraph(WALMART_SAMPLE);
-    setSelectedNodeId(null);
-    setContextNodeIds([]);
-    setCitedNodeIds([]);
+    loadGraph(WALMART_SAMPLE);
+  }
+
+  async function handleFilesSelected(files: File[]) {
+    try {
+      loadGraph(await loadGraphFiles(files));
+    } catch (err) { console.error(err); }
   }
 
   return (
@@ -65,7 +68,7 @@ export function VisualizerShell() {
     >
       <SubBar
         graph={graph}
-        onGraphLoaded={(g) => { setGraph(g); setSelectedNodeId(null); setContextNodeIds([]); setCitedNodeIds([]); }}
+        onFilesSelected={handleFilesSelected}
         workbenchOpen={workbenchOpen}
         onToggleWorkbench={() => setWorkbenchOpen(v => !v)}
       />
@@ -82,7 +85,7 @@ export function VisualizerShell() {
               onDeselect={() => setSelectedNodeId(null)}
             />
           ) : (
-            <EmptyState onLoadSample={handleLoadSample} />
+            <EmptyState onLoadSample={handleLoadSample} onFilesSelected={handleFilesSelected} />
           )}
         </main>
 

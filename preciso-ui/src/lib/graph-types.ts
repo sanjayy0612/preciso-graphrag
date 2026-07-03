@@ -9,6 +9,8 @@ export interface GraphNode {
   type: EntityType;
   description?: string;
   sourceId?: string;
+  /** Chunk ids this entity was extracted from (source_id / kv_store_entity_chunks) */
+  chunkIds?: string[];
   degree: number;
   _jitterSeed?: number;
   // d3-force
@@ -22,14 +24,24 @@ export interface GraphEdge {
   label?: string;
   weight: number;
   description?: string;
+  chunkIds?: string[];
+}
+
+export interface TextChunk {
+  id: string;
+  content: string;
+  docId?: string;
 }
 
 export interface ParsedGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Source text chunks from kv_store_text_chunks.json, when a GRAPH_IS_HERE folder is loaded */
+  chunks?: Record<string, TextChunk>;
   metadata: {
     nodeCount: number;
     edgeCount: number;
+    chunkCount?: number;
     entityTypes: Record<string, number>;
     sourceName?: string;
   };
