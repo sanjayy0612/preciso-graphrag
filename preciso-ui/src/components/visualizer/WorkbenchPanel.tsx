@@ -1,8 +1,13 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import type { ParsedGraph, QueryRun, RetrievalMode } from '@/lib/graph-types';
-import { streamOpenAI, streamCohere, SYSTEM_PROMPT } from '@/lib/llm-providers';
+import { streamOpenAI, streamCohere, SYSTEM_PROMPT, extractKeywords } from '@/lib/llm-providers';
 import { retrieve, buildContext, endpointId } from '@/lib/retrieval';
+
+// Questions longer than this get an LLM keyword-distillation pass before
+// retrieval (mirrors the backend's extract_keywords_only). Short, direct
+// questions embed fine as-is, so they skip the extra round-trip.
+const KEYWORD_WORD_THRESHOLD = 20;
 
 interface Props {
   graph: ParsedGraph | null;
@@ -52,22 +57,33 @@ function renderWithCitations(text: string, refMap: Record<string, string>, onCit
   });
 }
 
-const SectionHeader = ({ title, count, countKey }: { title: string; count?: number; countKey?: number }) => (
-  <div
-    className="px-4 py-2 border-b font-mono text-xs uppercase tracking-widest flex items-center justify-between"
+const SectionHeader = ({ title, count, countKey, collapsible, collapsed, onToggle }: {
+  title: string; count?: number; countKey?: number;
+  collapsible?: boolean; collapsed?: boolean; onToggle?: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={collapsible ? onToggle : undefined}
+    disabled={!collapsible}
+    className={`w-full px-4 py-2 border-b font-mono text-xs uppercase tracking-widest flex items-center justify-between text-left ${collapsible ? 'cursor-pointer hover:brightness-95' : 'cursor-default'}`}
     style={{
       color: 'var(--fg)',
       borderColor: 'color-mix(in srgb, var(--fg) 25%, var(--bg))',
       background: 'color-mix(in srgb, var(--fg) 5%, var(--bg))',
     }}
   >
-    <span className="font-bold">{title}</span>
+    <span className="font-bold flex items-center gap-1.5">
+      {collapsible && (
+        <span className="inline-block transition-transform" style={{ opacity: 0.5, transform: collapsed ? 'rotate(-90deg)' : 'none' }}>▾</span>
+      )}
+      {title}
+    </span>
     {count !== undefined && (
       <span key={countKey ?? count} className="count-pulse tabular-nums" style={{ color: 'var(--muted)' }}>
         {count}
       </span>
     )}
-  </div>
+  </button>
 );
 
 // Solid black-based divider — the main visual separator between sections
@@ -115,6 +131,17 @@ export function WorkbenchPanel({
   const [error, setError] = useState('');
   const [history, setHistory] = useState<QueryRun[]>([]);
 
+  // Panel layout: focus mode strips everything but Prompt + Response;
+  // individual sections can also be collapsed by their header.
+  const [focusMode, setFocusMode] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (key: string) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const isOpen = (key: string) => !collapsed.has(key);
+
   // Load keys from localStorage
   useEffect(() => {
     setApiKey(localStorage.getItem(`preciso.${provider}_key`) || '');
@@ -161,11 +188,20 @@ export function WorkbenchPanel({
 
     let result;
     try {
+      // Only long questions pay for the keyword-distillation round-trip.
+      // On failure extractKeywords returns null → retrieve falls back to raw text.
+      let keywords = null;
+      if (prompt.trim().split(/\s+/).length > KEYWORD_WORD_THRESHOLD) {
+        setEmbedStatus('Distilling query…');
+        keywords = await extractKeywords(prompt, { provider, model, apiKey });
+      }
+
       setEmbedStatus('Retrieving…');
       result = await retrieve({
         graph,
         query: prompt,
         mode,
+        keywords,
         embed: embedEnabled && embedKey ? {
           provider: embedProvider, model: embedModel, apiKey: embedKey,
           nodeCache: nodeEmbCache.current, edgeCache: edgeEmbCache.current,
@@ -242,8 +278,29 @@ export function WorkbenchPanel({
   return (
     <div className="flex-1 flex flex-col overflow-y-auto text-sm" style={{ color: 'var(--fg)' }}>
 
+      {/* ── FOCUS TOGGLE ───────────────────────────────────── */}
+      <div className="px-4 py-1.5 flex items-center justify-end border-b"
+        style={{ borderColor: 'color-mix(in srgb, var(--fg) 12%, var(--bg))' }}>
+        <button
+          onClick={() => setFocusMode(v => !v)}
+          className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 border transition-colors"
+          style={{
+            color: focusMode ? 'var(--bg)' : 'var(--muted)',
+            background: focusMode ? 'var(--fg)' : 'transparent',
+            borderColor: 'color-mix(in srgb, var(--fg) 25%, var(--bg))',
+          }}
+          title="Hide settings — just ask questions and read the graph"
+        >
+          ◎ {focusMode ? 'Focus on' : 'Focus'}
+        </button>
+      </div>
+
       {/* ── RUN CONFIG ─────────────────────────────────────── */}
-      <SectionHeader title="Run Config" />
+      {!focusMode && (
+      <>
+      <SectionHeader title="Run Config" collapsible collapsed={!isOpen('config')} onToggle={() => toggleCollapse('config')} />
+      {isOpen('config') && (
+      <>
       <div className="px-4 py-3 space-y-2 font-mono text-xs">
         <Row label="Provider">
           <select value={provider} onChange={e => setProvider(e.target.value as 'openai' | 'cohere')}
@@ -375,11 +432,18 @@ export function WorkbenchPanel({
           </div>
         )}
       </div>
-
+      </>
+      )}
       <Divider />
+      </>
+      )}
 
       {/* ── CONTEXT ────────────────────────────────────────── */}
-      <SectionHeader title="Context" count={contextNodeIds.length} countKey={contextNodeIds.length} />
+      {!focusMode && (
+      <>
+      <SectionHeader title="Context" count={contextNodeIds.length} countKey={contextNodeIds.length}
+        collapsible collapsed={!isOpen('context')} onToggle={() => toggleCollapse('context')} />
+      {isOpen('context') && (
       <div className="px-4 py-3">
         {contextNodes.length === 0 ? (
           <p className="text-xs font-mono" style={{ color: 'var(--muted)' }}>
@@ -408,8 +472,10 @@ export function WorkbenchPanel({
           </>
         )}
       </div>
-
+      )}
       <Divider />
+      </>
+      )}
 
       {/* ── PROMPT ─────────────────────────────────────────── */}
       <SectionHeader title="Prompt" />
@@ -445,7 +511,12 @@ export function WorkbenchPanel({
       <div className="px-4 py-3 font-mono text-xs leading-relaxed min-h-[80px]">
         {response ? (
           <div className="space-y-2">
-            <p style={{ color: 'var(--fg)' }}>{renderWithCitations(response, refMap, onCitationClick)}</p>
+            {/* Long answers scroll within a bounded region so they don't bury History below */}
+            <div className="max-h-[40vh] overflow-y-auto pr-1">
+              <p className="whitespace-pre-wrap break-words" style={{ color: 'var(--fg)' }}>
+                {renderWithCitations(response, refMap, onCitationClick)}
+              </p>
+            </div>
             <button onClick={() => navigator.clipboard.writeText(response)}
               className="px-2 py-1 border text-xs font-mono hover:bg-[var(--surface)] mt-2"
               style={{ borderColor: 'color-mix(in srgb, var(--fg) 25%, var(--bg))' }}>
@@ -459,31 +530,40 @@ export function WorkbenchPanel({
         )}
       </div>
 
+      {!focusMode && (
+      <>
       <Divider />
 
       {/* ── HISTORY ────────────────────────────────────────── */}
-      <SectionHeader title="History" count={history.length} />
+      <SectionHeader title="History" count={history.length}
+        collapsible collapsed={!isOpen('history')} onToggle={() => toggleCollapse('history')} />
+      {isOpen('history') && (
       <div className="px-4 py-3 space-y-1 font-mono text-xs">
         {history.length === 0 ? (
           <p style={{ color: 'var(--muted)' }}>No queries yet this session</p>
         ) : (
           <>
-            {history.map(item => (
-              <button key={item.id} onClick={() => { setPrompt(item.prompt); setResponse(item.response); setRefMap(item.refToNodeId); onCitedNodesChange(item.citedNodeIds); }}
-                className="w-full text-left py-1.5 flex items-start gap-2 hover:bg-[var(--surface)] px-2 -mx-2 transition-colors">
-                <span style={{ color: 'var(--muted)' }}>·</span>
-                <span className="flex-1 truncate" style={{ color: 'var(--fg)' }}>{item.prompt}</span>
-                <span style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10, flexShrink: 0 }}>
-                  {item.mode} · {Math.round((Date.now() - item.timestamp) / 60000)}m ago
-                </span>
-              </button>
-            ))}
+            <div className="max-h-[30vh] overflow-y-auto -mx-2">
+              {history.map(item => (
+                <button key={item.id} onClick={() => { setPrompt(item.prompt); setResponse(item.response); setRefMap(item.refToNodeId); onCitedNodesChange(item.citedNodeIds); }}
+                  className="w-full text-left py-1.5 flex items-start gap-2 hover:bg-[var(--surface)] px-2 transition-colors">
+                  <span style={{ color: 'var(--muted)' }}>·</span>
+                  <span className="flex-1 truncate" style={{ color: 'var(--fg)' }}>{item.prompt}</span>
+                  <span style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10, flexShrink: 0 }}>
+                    {item.mode} · {Math.round((Date.now() - item.timestamp) / 60000)}m ago
+                  </span>
+                </button>
+              ))}
+            </div>
             <button onClick={() => setHistory([])} className="mt-2 text-xs font-mono hover:text-[var(--fg)] transition-colors" style={{ color: 'var(--muted)' }}>
               Clear history
             </button>
           </>
         )}
       </div>
+      )}
+      </>
+      )}
     </div>
   );
 }

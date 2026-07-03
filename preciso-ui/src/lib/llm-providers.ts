@@ -64,6 +64,70 @@ export async function* streamCohere(opts: {
   }
 }
 
+// ── Non-streaming completions (keyword extraction) ──────────────────────────
+
+async function completeOpenAI(opts: {
+  apiKey: string; model: string; system: string; user: string;
+}): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
+    body: JSON.stringify({
+      model: opts.model,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: opts.system }, { role: 'user', content: opts.user }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
+  const json = await res.json();
+  return json.choices?.[0]?.message?.content ?? '';
+}
+
+async function completeCohere(opts: {
+  apiKey: string; model: string; system: string; user: string;
+}): Promise<string> {
+  const res = await fetch('https://api.cohere.ai/v1/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.apiKey}` },
+    body: JSON.stringify({ model: opts.model, preamble: opts.system, message: opts.user }),
+  });
+  if (!res.ok) throw new Error(`Cohere error ${res.status}: ${await res.text()}`);
+  const json = await res.json();
+  return json.text ?? '';
+}
+
+// Mirrors the backend's extract_keywords_only (core/query.py): distills a long
+// question into low-level keywords (specific entities — drives entity search)
+// and high-level keywords (themes — drives relationship search).
+// Returns null on any failure so callers fall back to the raw query.
+export interface QueryKeywords {
+  lowLevel: string[];
+  highLevel: string[];
+}
+
+const KEYWORD_SYSTEM = `Extract search keywords from the user's question about a knowledge graph. Respond with ONLY compact JSON, no prose: {"low_level_keywords": [...], "high_level_keywords": [...]}. low_level_keywords are specific entities, names, metrics, and dates mentioned or implied. high_level_keywords are broader themes and relationship concepts the question is about.`;
+
+export async function extractKeywords(
+  query: string,
+  llm: { provider: 'openai' | 'cohere'; model: string; apiKey: string },
+): Promise<QueryKeywords | null> {
+  try {
+    const raw = llm.provider === 'openai'
+      ? await completeOpenAI({ apiKey: llm.apiKey, model: llm.model, system: KEYWORD_SYSTEM, user: query })
+      : await completeCohere({ apiKey: llm.apiKey, model: llm.model, system: KEYWORD_SYSTEM, user: query });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const data = JSON.parse(match[0]);
+    const clean = (v: unknown) => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && !!s.trim()) : [];
+    const lowLevel = clean(data.low_level_keywords);
+    const highLevel = clean(data.high_level_keywords);
+    if (!lowLevel.length && !highLevel.length) return null;
+    return { lowLevel, highLevel };
+  } catch {
+    return null;
+  }
+}
+
 // ── Embeddings ──────────────────────────────────────────────────────────────
 
 export async function embedOpenAI(texts: string[], model: string, apiKey: string): Promise<number[][]> {

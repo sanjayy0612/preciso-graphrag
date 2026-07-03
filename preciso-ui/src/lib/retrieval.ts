@@ -1,5 +1,5 @@
 import type { ParsedGraph, GraphNode, GraphEdge, RetrievalMode, TextChunk } from './graph-types';
-import { embedBatch, cosineSimilarity } from './llm-providers';
+import { embedBatch, cosineSimilarity, type QueryKeywords } from './llm-providers';
 
 export type { RetrievalMode };
 
@@ -103,26 +103,40 @@ export async function retrieve(opts: {
   query: string;
   mode: RetrievalMode;
   embed?: EmbedConfig;
+  /** Optional LLM-extracted keywords: low-level drive the entity channel, high-level the relationship channel */
+  keywords?: QueryKeywords | null;
   onStatus?: (msg: string) => void;
 }): Promise<RetrievalResult> {
-  const { graph, query, mode, embed, onStatus } = opts;
+  const { graph, query, mode, embed, keywords, onStatus } = opts;
   const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
 
-  let queryVec: number[] | null = null;
+  // Per-channel search text, falling back to the raw question
+  const entityQuery = keywords?.lowLevel.length ? keywords.lowLevel.join(', ') : query;
+  const relationQuery = keywords?.highLevel.length ? keywords.highLevel.join(', ') : query;
+
+  const queryVecs = new Map<string, number[]>();
   if (embed) {
+    const channelQueries = [...new Set([
+      ...(mode !== 'global' ? [entityQuery] : []),
+      ...(mode !== 'local' ? [relationQuery] : []),
+    ])];
     onStatus?.('Embedding query…');
-    [queryVec] = await embedBatch([query], embed.provider, embed.model, embed.apiKey, 'search_query');
+    const vecs = await embedBatch(channelQueries, embed.provider, embed.model, embed.apiKey, 'search_query');
+    channelQueries.forEach((q, i) => queryVecs.set(q, vecs[i]));
   }
   const queryTokens = tokenize(query);
 
   async function scoreDocs(
-    docs: string[], cacheKeys: string[], cache: Map<string, number[]> | undefined, kind: string,
+    channelQuery: string, docs: string[], cacheKeys: string[],
+    cache: Map<string, number[]> | undefined, kind: string,
   ): Promise<number[]> {
+    const queryVec = queryVecs.get(channelQuery);
     if (embed && queryVec && cache) {
       await ensureEmbedded(docs, cacheKeys, cache, embed, kind, onStatus);
-      return cacheKeys.map(k => cosineSimilarity(queryVec!, cache.get(k) ?? []));
+      return cacheKeys.map(k => cosineSimilarity(queryVec, cache.get(k) ?? []));
     }
-    return docs.map(d => lexicalScore(queryTokens, d));
+    const channelTokens = tokenize(channelQuery);
+    return docs.map(d => lexicalScore(channelTokens, d));
   }
 
   const keep = (score: number) => (embed ? score >= SEMANTIC_MIN_SCORE : score > 0);
@@ -133,7 +147,7 @@ export async function retrieve(opts: {
   if (mode !== 'global') {
     const docs = graph.nodes.map(nodeDoc);
     const keys = graph.nodes.map(n => `n:${n.id}:::${modelTag}`);
-    const scores = await scoreDocs(docs, keys, embed?.nodeCache, 'entities');
+    const scores = await scoreDocs(entityQuery, docs, keys, embed?.nodeCache, 'entities');
     seedNodes = graph.nodes
       .map((n, i) => ({ n, s: scores[i] }))
       .filter(x => keep(x.s))
@@ -147,7 +161,7 @@ export async function retrieve(opts: {
   if (mode !== 'local') {
     const docs = graph.edges.map(e => edgeDoc(e, nodeMap));
     const keys = graph.edges.map(e => `e:${edgeKey(e)}:::${modelTag}`);
-    const scores = await scoreDocs(docs, keys, embed?.edgeCache, 'relationships');
+    const scores = await scoreDocs(relationQuery, docs, keys, embed?.edgeCache, 'relationships');
     seedEdges = graph.edges
       .map((e, i) => ({ e, s: scores[i] }))
       .filter(x => keep(x.s))

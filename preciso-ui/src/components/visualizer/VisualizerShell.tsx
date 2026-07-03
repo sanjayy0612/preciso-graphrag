@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import type { ParsedGraph } from '@/lib/graph-types';
 import { loadGraphFiles, filesFromDataTransfer } from '@/lib/graph-folder';
 import { WALMART_SAMPLE } from '@/lib/sample-graphs';
@@ -17,6 +17,40 @@ export function VisualizerShell() {
   const [workbenchOpen, setWorkbenchOpen] = useState(true);
   const [legendOpen, setLegendOpen] = useState(true);
   const [citedNodeIds, setCitedNodeIds] = useState<string[]>([]);
+
+  // Resizable workbench panel. The shell is client-only (gated by
+  // DesktopOnlyGuard), so reading localStorage in the initializer is safe.
+  const PANEL_MIN = 320, PANEL_MAX = 640;
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return 380;
+    const saved = Number(localStorage.getItem('preciso.panelWidth'));
+    return saved >= PANEL_MIN && saved <= PANEL_MAX ? saved : 380;
+  });
+  // Tracks the live width during a drag so the mouseup handler can persist it
+  // without re-subscribing listeners on every pixel.
+  const dragWidth = useRef(panelWidth);
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      // Panel hugs the right edge — width grows as the cursor moves left
+      const width = Math.min(PANEL_MAX, Math.max(PANEL_MIN, window.innerWidth - ev.clientX));
+      dragWidth.current = width;
+      setPanelWidth(width);
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('preciso.panelWidth', String(dragWidth.current));
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   function loadGraph(g: ParsedGraph) {
     setGraph(g);
@@ -91,9 +125,20 @@ export function VisualizerShell() {
 
         {workbenchOpen && (
           <aside
-            className="w-[380px] flex flex-col border-l overflow-hidden"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)' }}
+            className="relative flex flex-col border-l overflow-hidden shrink-0"
+            style={{ width: panelWidth, borderColor: 'var(--border)', background: 'var(--bg)' }}
           >
+            {/* Drag handle — grab the left edge to resize */}
+            <div
+              onMouseDown={startResize}
+              className="absolute left-0 top-0 h-full w-1.5 -ml-0.5 z-10 cursor-col-resize group"
+              title="Drag to resize"
+            >
+              <div
+                className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors group-hover:w-0.5"
+                style={{ background: 'color-mix(in srgb, var(--fg) 20%, transparent)' }}
+              />
+            </div>
             <WorkbenchPanel
               graph={graph}
               contextNodeIds={contextNodeIds}
