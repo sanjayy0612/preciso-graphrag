@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
 
 const NAV_LINKS = [
@@ -37,11 +38,11 @@ export function VisualizerNav() {
     <header className="fixed top-0 left-0 right-0 z-50 border-b-2 border-border bg-background/90 backdrop-blur-md">
       <div className="px-5 h-12 flex items-center gap-6">
         {/* Logo */}
-        <a href="/" className="shrink-0 group mr-2">
+        <Link href="/" className="shrink-0 group mr-2">
           <span className="font-anton text-[18px] leading-none tracking-tight text-foreground group-hover:text-[var(--red)] transition-colors uppercase">
             Preciso
           </span>
-        </a>
+        </Link>
 
         {/* Tool label */}
         <span className="font-mono text-xs text-muted border border-border px-2 py-0.5">
@@ -50,15 +51,18 @@ export function VisualizerNav() {
 
         {/* Nav links */}
         <nav className="flex items-center gap-5 ml-2">
-          {NAV_LINKS.map(link => (
-            <a
-              key={link.label}
-              href={link.href}
-              className="font-mono text-xs text-muted hover:text-foreground transition-colors"
-            >
-              {link.label}
-            </a>
-          ))}
+          {NAV_LINKS.map(link => {
+            const cls = "font-mono text-xs text-muted hover:text-foreground transition-colors";
+            return link.href.startsWith("/") ? (
+              <Link key={link.label} href={link.href} className={cls}>
+                {link.label}
+              </Link>
+            ) : (
+              <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className={cls}>
+                {link.label}
+              </a>
+            );
+          })}
         </nav>
 
         <div className="flex-1" />

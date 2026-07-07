@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 type Theme = "light" | "dark";
 
@@ -8,17 +8,16 @@ const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
   toggle: () => {},
 });
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("light");
+// The inline script in layout.tsx applies the correct theme class before React
+// hydrates (no flash of the wrong theme). Here we simply read back the class the
+// script already set, so there is no setState-in-effect and no visual flash.
+function initialTheme(): Theme {
+  if (typeof document === "undefined") return "light";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
 
-  useEffect(() => {
-    const stored = localStorage.getItem("preciso-theme") as Theme | null;
-    const preferred =
-      stored ??
-      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    apply(preferred);
-    setTheme(preferred);
-  }, []);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
 
   function apply(t: Theme) {
     document.documentElement.classList.toggle("dark", t === "dark");

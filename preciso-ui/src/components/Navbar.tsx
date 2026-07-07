@@ -7,6 +7,7 @@ const NAV_LINKS = [
   { label: "Skills",       href: "#skills" },
   { label: "MCP Tools",    href: "#mcp-tools" },
   { label: "Quickstart",   href: "#quickstart" },
+  { label: "FAQ",          href: "#faq" },
   { label: "Visualizer",   href: "/visualizer" },
 ];
 

@@ -7,9 +7,13 @@ export function DesktopOnlyGuard({ children }: { children: React.ReactNode }) {
   const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
+    // Measure viewport on mount and on resize — reading window is only possible
+    // client-side, so this state must be synced from an effect.
+    /* eslint-disable react-hooks/set-state-in-effect -- syncs to window.innerWidth, a browser-only value unavailable during render */
     const check = () => setIsDesktop(window.innerWidth >= 1024);
     check();
     setReady(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);

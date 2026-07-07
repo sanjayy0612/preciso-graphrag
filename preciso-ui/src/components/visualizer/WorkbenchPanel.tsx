@@ -142,13 +142,16 @@ export function WorkbenchPanel({
   });
   const isOpen = (key: string) => !collapsed.has(key);
 
-  // Load keys from localStorage
+  // Load keys from localStorage. Syncs form state to the stored key and resets
+  // the model to the provider default whenever the selected provider changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form to the newly selected provider's stored key + default model
     setApiKey(localStorage.getItem(`preciso.${provider}_key`) || '');
     setModel(LLM_MODELS[provider][0]);
   }, [provider]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form to the newly selected embed provider's stored key + default model
     setEmbedKey(localStorage.getItem(`preciso.embed_${embedProvider}_key`) || '');
     setEmbedModel(EMBED_MODELS[embedProvider][0]);
   }, [embedProvider]);
@@ -550,6 +553,7 @@ export function WorkbenchPanel({
                   <span style={{ color: 'var(--muted)' }}>·</span>
                   <span className="flex-1 truncate" style={{ color: 'var(--fg)' }}>{item.prompt}</span>
                   <span style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10, flexShrink: 0 }}>
+                    {/* eslint-disable-next-line react-hooks/purity -- relative "Xm ago" label; approximate staleness between renders is acceptable */}
                     {item.mode} · {Math.round((Date.now() - item.timestamp) / 60000)}m ago
                   </span>
                 </button>
