@@ -22,6 +22,10 @@ export function EmptyState({ onLoadSample, onFilesSelected }: Props) {
           — or your whole <span className="font-mono bg-[var(--surface)] px-1.5 py-0.5 rounded">GRAPH_IS_HERE</span> folder
           — anywhere to start exploring.
         </p>
+        <p className="text-xs font-mono mb-6 -mt-4" style={{ color: 'var(--muted)' }}>
+          Not sure which to drop, or want to query it via your own agent instead? See{' '}
+          <span className="opacity-80">&quot;? How this works&quot;</span> in the bar above.
+        </p>
         <input
           ref={fileRef}
           type="file"

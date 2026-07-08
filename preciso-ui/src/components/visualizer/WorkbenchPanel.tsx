@@ -57,7 +57,7 @@ function renderWithCitations(text: string, refMap: Record<string, string>, onCit
   });
 }
 
-const SectionHeader = ({ title, count, countKey, collapsible, collapsed, onToggle }: {
+export const SectionHeader = ({ title, count, countKey, collapsible, collapsed, onToggle }: {
   title: string; count?: number; countKey?: number;
   collapsible?: boolean; collapsed?: boolean; onToggle?: () => void;
 }) => (
@@ -87,7 +87,7 @@ const SectionHeader = ({ title, count, countKey, collapsible, collapsed, onToggl
 );
 
 // Solid black-based divider — the main visual separator between sections
-const Divider = () => (
+export const Divider = () => (
   <div className="border-t" style={{ borderColor: 'color-mix(in srgb, var(--fg) 25%, var(--bg))' }} />
 );
 
@@ -172,6 +172,14 @@ export function WorkbenchPanel({
   }
 
   const contextNodes = graph ? graph.nodes.filter(n => contextNodeIds.includes(n.id)) : [];
+
+  // When the embed provider matches the LLM provider, the same key works for
+  // both — let the user reuse it instead of pasting it twice.
+  const canReuseLlmKey = embedProvider === provider && !!apiKey && !embedKey;
+  function reuseLlmKey() {
+    setEmbedKey(apiKey);
+    localStorage.setItem(`preciso.embed_${embedProvider}_key`, apiKey);
+  }
 
   async function runQuery() {
     if (!graph || !apiKey || streaming) return;
@@ -426,11 +434,24 @@ export function WorkbenchPanel({
                 <span style={{ color: embedKey ? 'var(--fg)' : 'var(--muted)' }}>
                   {embedKey ? '•'.repeat(Math.min(12, embedKey.length)) : 'Not set'}
                   <button onClick={() => setEditingEmbedKey(true)} className="ml-2 opacity-50 hover:opacity-100"> ✎</button>
+                  {canReuseLlmKey && (
+                    <button onClick={reuseLlmKey}
+                      className="ml-2 underline decoration-dotted opacity-70 hover:opacity-100 transition-opacity"
+                      style={{ color: 'var(--stripe)' }}>
+                      use {provider} LLM key
+                    </button>
+                  )}
                 </span>
               )}
             </Row>
             <p style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10 }}>
               On query: entities & relationships ranked by cosine similarity, cached per graph.
+            </p>
+            <p style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10 }}>
+              Independent index, not a reuse of your ingest vectors — enabling this re-embeds live (see &quot;How this works&quot;).
+            </p>
+            <p style={{ color: 'var(--muted)', opacity: 0.55, fontSize: 10 }}>
+              Key stays in browser — never sent to Preciso servers.
             </p>
           </div>
         )}
