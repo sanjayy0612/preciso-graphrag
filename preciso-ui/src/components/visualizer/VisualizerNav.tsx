@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import ThemeToggle from '@/components/ThemeToggle';
+import { UsageGuide } from './UsageGuide';
 
 const NAV_LINKS = [
   { label: 'Docs',  href: 'https://github.com/Preciso-GR/preciso-graphrag#readme' },
@@ -26,6 +27,7 @@ function GitHubIcon() {
 
 export function VisualizerNav() {
   const [stars, setStars] = useState<number | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   useEffect(() => {
     fetch('https://api.github.com/repos/Preciso-GR/preciso-graphrag')
@@ -63,6 +65,12 @@ export function VisualizerNav() {
               </a>
             );
           })}
+          <button
+            onClick={() => setGuideOpen(true)}
+            className="font-mono text-xs text-muted hover:text-foreground transition-colors"
+          >
+            ? How this works
+          </button>
         </nav>
 
         <div className="flex-1" />
@@ -88,6 +96,8 @@ export function VisualizerNav() {
           </a>
         </div>
       </div>
+
+      <UsageGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
     </header>
   );
 }

@@ -14,7 +14,7 @@ export function VisualizerShell() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [contextNodeIds, setContextNodeIds] = useState<string[]>([]);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
-  const [workbenchOpen, setWorkbenchOpen] = useState(true);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(true);
   const [citedNodeIds, setCitedNodeIds] = useState<string[]>([]);
 
