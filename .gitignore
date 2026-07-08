@@ -46,3 +46,5 @@ preciso-agent/.env
 preciso-agent
 .claude
 CLAUDE.md  
+PAPER_MEMORY.md
+MEMORY.md
