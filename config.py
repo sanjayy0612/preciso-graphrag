@@ -115,6 +115,53 @@ DEFAULT_EXPORT_WORKSPACE = os.getenv("GRAPHRAG_EXPORT_WORKSPACE", "default")
 DEFAULT_EXPORT_CLEAR_EXISTING = os.getenv("GRAPHRAG_EXPORT_CLEAR_EXISTING", "false").lower() == "true"
 
 # ============================================================================
+# QUERY HEURISTIC DEFAULTS (used by query.py)
+# Domain heuristics live here (not in core/) so non-financial deployments can
+# override them without touching code.
+# ============================================================================
+# Phrases signalling a two-period comparison query ("hybrid" mode auto-upgrades
+# to "global" when one matches). Override with GRAPHRAG_YOY_SIGNAL_PHRASES as a
+# comma-separated list; items are matched verbatim against the lowercased query,
+# so leading/trailing spaces are significant (e.g. " vs ").
+_DEFAULT_YOY_SIGNAL_PHRASES = [
+    "change from",
+    "changed from",
+    "compare",
+    "comparison",
+    "growth from",
+    "grew from",
+    "increase from",
+    "increased from",
+    "decrease from",
+    "decreased from",
+    "year over year",
+    "yoy",
+    "from fiscal",
+    "from fy",
+    "versus",
+    " vs ",
+    "compared to",
+    "relative to",
+]
+_yoy_phrases_env = os.getenv("GRAPHRAG_YOY_SIGNAL_PHRASES")
+DEFAULT_YOY_SIGNAL_PHRASES = (
+    [phrase.lower() for phrase in _yoy_phrases_env.split(",") if phrase]
+    if _yoy_phrases_env is not None
+    else _DEFAULT_YOY_SIGNAL_PHRASES
+)
+
+# Persona line opening the default rag_response prompt. GRAPHRAG_RAG_PERSONA
+# accepts "neutral" (default), "financial" (the original Preciso wording), or
+# any custom persona sentence used verbatim (avoid `{`/`}` — the assembled
+# prompt goes through str.format).
+_RAG_PERSONAS = {
+    "neutral": "You are a knowledge graph retrieval assistant.",
+    "financial": "You are a financial graph retrieval assistant.",
+}
+_rag_persona_env = os.getenv("GRAPHRAG_RAG_PERSONA", "neutral")
+DEFAULT_RAG_PERSONA = _RAG_PERSONAS.get(_rag_persona_env.strip().lower(), _rag_persona_env)
+
+# ============================================================================
 # LLM PROMPTS (used by summary.py, query.py)
 # Templates sent to LLM functions for summarization and response generation
 # ============================================================================
@@ -129,7 +176,7 @@ PROMPTS = {
     "rag_response": (
         # Used by query.py → kg_query()
         # Final prompt to generate response from knowledge graph context
-        "You are a financial graph retrieval assistant.\n"
+        DEFAULT_RAG_PERSONA + "\n"
         "Use the provided context to answer in {response_type}.\n"
         "Additional user guidance: {user_prompt}\n\n"
         "{context_data}"
@@ -340,6 +387,7 @@ def build_global_config(
         # ====================================================================
         "related_chunk_number": DEFAULT_RELATED_CHUNK_NUMBER,  # Chunks to retrieve per query
         "kg_chunk_pick_method": DEFAULT_KG_CHUNK_PICK_METHOD,  # How to select chunks: "WEIGHT" or others
+        "yoy_signal_phrases": DEFAULT_YOY_SIGNAL_PHRASES,      # Comparison-query phrases (query.py mode upgrade)
         
         # ====================================================================
         # SOURCE ID TRACKING (used by merge.py)

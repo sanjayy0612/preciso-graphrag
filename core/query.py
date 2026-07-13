@@ -13,6 +13,7 @@ from config import (
     DEFAULT_MAX_RELATION_TOKENS,
     DEFAULT_MAX_TOTAL_TOKENS,
     DEFAULT_RELATED_CHUNK_NUMBER,
+    DEFAULT_YOY_SIGNAL_PHRASES,
     PROMPTS,
     GRAPH_FIELD_SEP,
 )
@@ -43,34 +44,15 @@ from core.utils import (
     CacheData,
 )
 
-YOY_SIGNAL_PHRASES = [
-    "change from",
-    "changed from",
-    "compare",
-    "comparison",
-    "growth from",
-    "grew from",
-    "increase from",
-    "increased from",
-    "decrease from",
-    "decreased from",
-    "year over year",
-    "yoy",
-    "from fiscal",
-    "from fy",
-    "versus",
-    " vs ",
-    "compared to",
-    "relative to",
-]
-
-
-def _detect_comparison_query(query: str) -> bool:
+def _detect_comparison_query(query: str, signal_phrases: list[str]) -> bool:
     """
     Returns True if query is asking for a comparison between two time periods.
+
+    The phrase list is domain configuration (config.py: yoy_signal_phrases /
+    GRAPHRAG_YOY_SIGNAL_PHRASES), not core logic.
     """
     query_lower = query.lower()
-    return any(phrase in query_lower for phrase in YOY_SIGNAL_PHRASES)
+    return any(phrase in query_lower for phrase in signal_phrases)
 
 
 async def extract_keywords_only(
@@ -155,7 +137,9 @@ async def kg_query(
 ) -> QueryResult | None:
     if not query:
         return QueryResult(content=PROMPTS["fail_response"])
-    if query_param.mode == "hybrid" and _detect_comparison_query(query):
+    if query_param.mode == "hybrid" and _detect_comparison_query(
+        query, global_config.get("yoy_signal_phrases", DEFAULT_YOY_SIGNAL_PHRASES)
+    ):
         query_param = replace(query_param, mode="global")
         logger.info("Query auto-upgraded to global mode: comparison intent detected")
     use_model_func = query_param.model_func or global_config.get("llm_model_func")
