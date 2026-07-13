@@ -8,7 +8,7 @@ from typing import Any
 from core.merge import _merge_edges_then_upsert, _merge_nodes_then_upsert
 from core.runtime_status import update_artifact_manifest
 from core.storage.shared_storage import get_storage_keyed_lock
-from core.utils import compute_mdhash_id, safe_vdb_operation_with_exception
+from core.utils import compute_mdhash_id, logger, safe_vdb_operation_with_exception
 from ingest.transformer import agent_json_to_edges_data, agent_json_to_nodes_data
 from ingest.validator import validate_entity, validate_relationship
 
@@ -217,4 +217,5 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             result["summary_events"] = pipeline_status["summary_events"]
         return result
     except Exception as exc:
+        logger.exception("ingest_extracted_json failed (document_id=%s)", payload.get("document_id"))
         return {"status": "error", "message": str(exc)}

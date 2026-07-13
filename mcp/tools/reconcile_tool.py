@@ -14,6 +14,7 @@ import re
 import time
 from pathlib import Path
 
+from core.utils import logger
 from ingest.reconciler import reconcile_extractions
 from ingest.pipeline import ingest_extracted_json
 
@@ -95,6 +96,7 @@ async def ingest_with_reconciliation(
         except json.JSONDecodeError as e:
             read_errors.append(f"Invalid JSON in {fp}: {e}")
         except Exception as e:
+            logger.exception("ingest_with_reconciliation: failed to read extraction file %s", fp)
             read_errors.append(f"Failed to read {fp}: {e}")
 
     if read_errors:
@@ -126,6 +128,7 @@ async def ingest_with_reconciliation(
     try:
         unified = reconcile_extractions(first, patch_list)
     except Exception as e:
+        logger.exception("ingest_with_reconciliation: reconcile_extractions failed (document_id=%s)", document_id)
         return {
             "status": "error",
             "message": f"Reconciliation failed: {e}",
@@ -163,6 +166,7 @@ async def ingest_with_reconciliation(
         with open(unified_path, "w", encoding="utf-8") as f:
             json.dump(unified, f, indent=2, ensure_ascii=False)
     except Exception as e:
+        logger.exception("ingest_with_reconciliation: failed to write unified file %s", unified_path)
         return {
             "status": "error",
             "message": f"Failed to write unified file: {e}",
@@ -176,6 +180,7 @@ async def ingest_with_reconciliation(
             global_config=global_config,
         )
     except Exception as e:
+        logger.exception("ingest_with_reconciliation: ingestion failed after reconciliation (document_id=%s)", document_id)
         return {
             "status": "error",
             "message": f"Ingestion failed after reconciliation: {e}",

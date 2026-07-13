@@ -16,7 +16,7 @@ from core.bootstrap import build_storage_instances, initialize_storage_instances
 from core.query import kg_query
 from core.runtime_status import update_artifact_manifest
 from core.storage.base import QueryParam
-from core.utils import BasicTokenizer
+from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
 from mcp.server.fastmcp import FastMCP
 from tools.export_tool import export_to_neo4j, export_to_qdrant
@@ -29,10 +29,26 @@ tokenizer = BasicTokenizer()
 global_config = build_global_config(
     working_dir="GRAPH_IS_HERE",  # Custom folder for graph storage
     tokenizer=tokenizer,
-    embedding_func=build_default_embedding_func(),
+    embedding_func=None,  # populated in initialize_runtime(); building it may probe Ollama
 )
-storage_instances = build_storage_instances(global_config)
+# Populated by initialize_runtime(). Must stay the same dict object: every tool
+# closure below captures this name, so it is mutated in place, never rebound.
+storage_instances: dict = {}
 mcp = FastMCP("graphrag-mcp")
+
+
+def initialize_runtime() -> None:
+    """Build the embedding function and storage instances.
+
+    Kept out of module import: build_default_embedding_func() may hit the
+    network to probe the embedding dimension, and the vector stores consume
+    that dimension (and touch the working dir) at construction. Importing
+    this module must perform no network or storage I/O.
+    """
+    if storage_instances:
+        return
+    global_config["embedding_func"] = build_default_embedding_func()
+    storage_instances.update(build_storage_instances(global_config))
 
 
 @mcp.tool(
@@ -311,6 +327,7 @@ async def ingest_checkpoint_tool(payload: dict) -> dict:
         await checkpoints.index_done_callback()
         return {"status": "success", "checkpoint_id": checkpoint_id}
     except Exception as exc:
+        logger.exception("ingest_checkpoint_tool failed")
         return {"status": "error", "message": str(exc)}
 
 
@@ -409,10 +426,12 @@ async def query_graph_tool(
             "is_streaming": result.is_streaming,
         }
     except Exception as exc:
+        logger.exception("query_graph_tool failed (mode=%s)", mode)
         return {"status": "error", "message": str(exc)}
 
 
 async def startup() -> None:
+    initialize_runtime()
     await initialize_storage_instances(storage_instances)
     await update_artifact_manifest(storage_instances, global_config)
 

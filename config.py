@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+# Same logger core/utils.py configures handlers on; config.py must not import
+# core.utils (core.utils imports config).
+logger = logging.getLogger("graphrag_mcp")
 
 # ==========================================================================
 # TOKEN LIMIT DEFAULTS (used by summary.py, merge.py, query.py)
@@ -198,6 +203,12 @@ async def _cohere_embed(texts: list[str], **kwargs) -> list[list[float]]:
 
 
 def build_default_embedding_func() -> Any:
+    """Build the EmbeddingFunc for the configured provider.
+
+    For the ollama provider this performs a NETWORK round-trip to probe the
+    model's embedding dimension — call it from server startup (or a script's
+    main path), never at module import.
+    """
     from core.storage.base import EmbeddingFunc
 
     provider = DEFAULT_EMBEDDING_PROVIDER.lower()
@@ -213,8 +224,22 @@ def build_default_embedding_func() -> Any:
             if embeddings and isinstance(embeddings, list) and len(embeddings) > 0:
                 first = embeddings[0]
                 detected_dim = len(first)
+            else:
+                logger.warning(
+                    "Ollama embedding-dimension probe returned no embeddings for model %s; "
+                    "using default embedding_dim=%d — if the model's real dimension differs, "
+                    "vector indexes will be built wrong and reset on the next mismatch",
+                    DEFAULT_EMBEDDING_MODEL,
+                    DEFAULT_EMBEDDING_DIM,
+                )
         except Exception:
-            # ignore detection errors and use default
+            logger.exception(
+                "Ollama embedding-dimension probe failed for model %s (is Ollama running?); "
+                "using default embedding_dim=%d — if the model's real dimension differs, "
+                "vector indexes will be built wrong and reset on the next mismatch",
+                DEFAULT_EMBEDDING_MODEL,
+                DEFAULT_EMBEDDING_DIM,
+            )
             detected_dim = DEFAULT_EMBEDDING_DIM
 
         return EmbeddingFunc(

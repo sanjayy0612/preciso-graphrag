@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from core.utils import compute_mdhash_id
+from core.utils import compute_mdhash_id, logger
 
 
 async def ingest_checkpoint(payload: dict, storage_instances: dict, global_config: dict) -> dict:
@@ -27,4 +27,5 @@ async def ingest_checkpoint(payload: dict, storage_instances: dict, global_confi
             "checkpoint_id": checkpoint_id,
         }
     except Exception as exc:
+        logger.exception("ingest_checkpoint failed")
         return {"status": "error", "message": str(exc)}

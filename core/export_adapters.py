@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from config import GRAPH_FIELD_SEP
-from core.utils import strip_summary_marker
+from core.utils import logger, strip_summary_marker
 
 
 def _sanitize_workspace(value: str | None) -> str:
@@ -97,6 +97,7 @@ async def export_graph_to_neo4j(
     try:
         from neo4j import AsyncGraphDatabase
     except Exception as exc:
+        logger.exception("Neo4j export aborted: `neo4j` package import failed")
         return {
             "status": "error",
             "message": "Neo4j export requires the `neo4j` package. Reinstall dependencies with `pip install -r requirements.txt`.",
@@ -184,6 +185,7 @@ async def export_graph_to_neo4j(
                 )
                 await result.consume()
     except Exception as exc:
+        logger.exception("Neo4j export failed (workspace=%s, database=%s)", workspace_id, database)
         return {
             "status": "error",
             "message": "Neo4j export failed.",
@@ -263,6 +265,7 @@ async def export_vectors_to_qdrant(
     try:
         from qdrant_client import QdrantClient, models
     except Exception as exc:
+        logger.exception("Qdrant export aborted: `qdrant-client` package import failed")
         return {
             "status": "error",
             "message": "Qdrant export requires the `qdrant-client` package. Reinstall dependencies with `pip install -r requirements.txt`.",
@@ -370,6 +373,7 @@ async def export_vectors_to_qdrant(
                 }
             )
     except Exception as exc:
+        logger.exception("Qdrant export failed (workspace=%s)", workspace_id)
         return {
             "status": "error",
             "message": "Qdrant export failed.",

@@ -217,4 +217,5 @@ class NanoVectorDBStorage(BaseVectorStorage):
             await self.index_done_callback()
             return {"status": "success", "message": "data dropped"}
         except Exception as exc:
+            logger.exception("NanoVectorDBStorage.drop failed (namespace=%s)", self.namespace)
             return {"status": "error", "message": str(exc)}

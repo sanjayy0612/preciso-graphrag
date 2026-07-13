@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from core.query import kg_query
 from core.storage.base import QueryParam
+from core.utils import logger
 
 
 async def query_graph(
@@ -30,4 +31,5 @@ async def query_graph(
             "is_streaming": result.is_streaming,
         }
     except Exception as exc:
+        logger.exception("query_graph failed (mode=%s)", mode)
         return {"status": "error", "message": str(exc)}
