@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Literal
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-MCP_DIR = Path(__file__).resolve().parent
-if str(MCP_DIR) not in sys.path:
-    sys.path.insert(0, str(MCP_DIR))
+# Run as `python -m preciso_mcp.server` from the repo root, or after
+# `pip install -e .` — never via sys.path manipulation. `mcp` below is the
+# MCP SDK package; the local package is preciso_mcp precisely so the two
+# can no longer shadow each other.
+from mcp.server.fastmcp import FastMCP
 
 from config import build_default_embedding_func, build_global_config
 from core.bootstrap import build_storage_instances, initialize_storage_instances
@@ -18,11 +15,10 @@ from core.runtime_status import update_artifact_manifest
 from core.storage.base import QueryParam
 from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
-from mcp.server.fastmcp import FastMCP
-from tools.export_tool import export_to_neo4j, export_to_qdrant
-from tools.ingest_from_file_tool import ingest_from_file, reingest_from_file
-from tools.reconcile_tool import ingest_with_reconciliation
-from tools.status_tool import get_server_status
+from preciso_mcp.tools.export_tool import export_to_neo4j, export_to_qdrant
+from preciso_mcp.tools.ingest_from_file_tool import ingest_from_file, reingest_from_file
+from preciso_mcp.tools.reconcile_tool import ingest_with_reconciliation
+from preciso_mcp.tools.status_tool import get_server_status
 
 
 tokenizer = BasicTokenizer()

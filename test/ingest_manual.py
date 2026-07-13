@@ -17,15 +17,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-MCP_DIR = PROJECT_ROOT / "mcp"
-if str(MCP_DIR) not in sys.path:
-    sys.path.insert(0, str(MCP_DIR))
 
 from config import build_default_embedding_func, build_global_config
 from core.bootstrap import build_storage_instances, initialize_storage_instances
 from core.utils import BasicTokenizer
 from ingest.parser import parse_markdown_extraction
-from tools.ingest_from_file_tool import ingest_from_file
+from preciso_mcp.tools.ingest_from_file_tool import ingest_from_file
 
 
 def load_extraction_summary(file_path: Path) -> dict:

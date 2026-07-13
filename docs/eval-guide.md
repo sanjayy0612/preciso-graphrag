@@ -17,7 +17,7 @@ bash scripts/mcp_launcher.sh &
 Or if you prefer to start it manually:
 
 ```bash
-python3 mcp/server.py
+python3 -m preciso_mcp.server
 ```
 
 ### Step 2: Run the evaluation prompt in your agent

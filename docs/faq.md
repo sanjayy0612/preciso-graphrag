@@ -46,7 +46,7 @@ Error: Cannot find module 'mcp' or command 'mcp_launcher.sh' not found
    ```
 3. Start the server manually:
    ```bash
-   python3 mcp/server.py
+   python3 -m preciso_mcp.server
    ```
 
 If it still fails, check that `scripts/mcp_launcher.sh` is executable:
@@ -130,7 +130,7 @@ Ingestion completes with "success" but `GRAPH_IS_HERE/` files are empty or conta
 
 4. **Check ingestion logs:**
    ```bash
-   tail -f mcp/server.log  # if logging is enabled
+   tail -f preciso_mcp/server.log  # if logging is enabled
    ```
 
 5. **Manually re-ingest:**

@@ -56,8 +56,10 @@ Examples: Memgraph, TigerGraph, Weaviate, Pinecone.
 1. Fork the repo
 2. Create a branch: git checkout -b your-feature
 3. Make your change
-4. Run: python3 -m compileall core ingest mcp
+4. Run: python3 -m compileall core ingest preciso_mcp
    Must pass with zero errors
+   (Set up once with `pip install -e .` from the repo root so the
+   `preciso_mcp`, `core`, and `ingest` packages resolve everywhere.)
 5. Open a PR with a clear description
 
 ---

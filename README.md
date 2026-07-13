@@ -82,6 +82,7 @@ cd preciso-graphrag
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .   # register the preciso_mcp/core/ingest packages (editable)
 ```
 
 > Requires Python 3.11+, a local virtualenv at `.venv`, and the agent opened from the repo root.

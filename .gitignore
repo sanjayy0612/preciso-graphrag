@@ -49,3 +49,6 @@ CLAUDE.md
 PAPER_MEMORY.md
 MEMORY.md
 RESEARCH_PLAN.md
+
+# setuptools editable-install metadata
+*.egg-info/
