@@ -23,6 +23,7 @@ from config import (
     DEFAULT_SOURCE_IDS_LIMIT_METHOD,
     GRAPH_FIELD_SEP,
     SOURCE_IDS_LIMIT_METHOD_FIFO,
+    SUMMARY_MARKER,
     VALID_SOURCE_IDS_LIMIT_METHODS,
 )
 
@@ -33,6 +34,19 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+
+_SUMMARY_MARKER_RE = re.compile(re.escape(SUMMARY_MARKER) + r"\s*")
+
+
+def strip_summary_marker(text: str) -> str:
+    """Remove the internal SUMMARY_MARKER bookkeeping prefix.
+
+    The marker is storage-only metadata; it must never reach embedding content,
+    LLM query context, user-facing query results, or exports.
+    """
+    if not text or SUMMARY_MARKER not in text:
+        return text
+    return _SUMMARY_MARKER_RE.sub("", text)
 
 
 class BasicTokenizer:
@@ -520,7 +534,7 @@ def convert_to_user_format(
                 {
                     "entity_name": original_entity.get("entity_name", entity_name),
                     "entity_type": original_entity.get("entity_type", "UNKNOWN"),
-                    "description": original_entity.get("description", ""),
+                    "description": strip_summary_marker(original_entity.get("description", "")),
                     "source_id": original_entity.get("source_id", ""),
                     "file_path": original_entity.get("file_path", "unknown_source"),
                     "created_at": original_entity.get("created_at", ""),
@@ -531,7 +545,7 @@ def convert_to_user_format(
                 {
                     "entity_name": entity_name,
                     "entity_type": entity.get("type", "UNKNOWN"),
-                    "description": entity.get("description", ""),
+                    "description": strip_summary_marker(entity.get("description", "")),
                     "source_id": entity.get("source_id", ""),
                     "file_path": entity.get("file_path", "unknown_source"),
                     "created_at": entity.get("created_at", ""),
@@ -552,7 +566,7 @@ def convert_to_user_format(
                 {
                     "src_id": original_relation.get("src_id", entity1),
                     "tgt_id": original_relation.get("tgt_id", entity2),
-                    "description": original_relation.get("description", ""),
+                    "description": strip_summary_marker(original_relation.get("description", "")),
                     "keywords": original_relation.get("keywords", ""),
                     "weight": original_relation.get("weight", 1.0),
                     "source_id": original_relation.get("source_id", ""),
@@ -565,7 +579,7 @@ def convert_to_user_format(
                 {
                     "src_id": entity1,
                     "tgt_id": entity2,
-                    "description": relation.get("description", ""),
+                    "description": strip_summary_marker(relation.get("description", "")),
                     "keywords": relation.get("keywords", ""),
                     "weight": relation.get("weight", 1.0),
                     "source_id": relation.get("source_id", ""),

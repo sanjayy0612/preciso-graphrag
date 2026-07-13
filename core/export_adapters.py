@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from config import GRAPH_FIELD_SEP
+from core.utils import strip_summary_marker
 
 
 def _sanitize_workspace(value: str | None) -> str:
@@ -54,7 +55,7 @@ def _node_properties(node: dict[str, Any], workspace: str) -> dict[str, Any]:
         "entity_id": entity_id,
         "entity_name": entity_id,
         "entity_type": str(node.get("entity_type", "UNKNOWN")).strip() or "UNKNOWN",
-        "description": str(node.get("description", "")).strip(),
+        "description": strip_summary_marker(str(node.get("description", "")).strip()),
         "source_id": str(node.get("source_id", "")).strip(),
         "source_ids": _split_graph_field(node.get("source_id")),
         "file_path": str(node.get("file_path", "")).strip(),
@@ -71,7 +72,7 @@ def _edge_properties(edge: dict[str, Any], workspace: str) -> dict[str, Any]:
         "edge_key": f"{src_id}->{tgt_id}",
         "src_id": src_id,
         "tgt_id": tgt_id,
-        "description": str(edge.get("description", "")).strip(),
+        "description": strip_summary_marker(str(edge.get("description", "")).strip()),
         "keywords": str(edge.get("keywords", "")).strip(),
         "keywords_list": _split_keywords(edge.get("keywords")),
         "source_id": str(edge.get("source_id", "")).strip(),
@@ -227,9 +228,19 @@ async def _collect_local_vectors(storage) -> list[dict[str, Any]]:
     return [dict(item) for item in data]
 
 
+def _strip_marker_deep(value: Any) -> Any:
+    if isinstance(value, str):
+        return strip_summary_marker(value)
+    if isinstance(value, list):
+        return [_strip_marker_deep(item) for item in value]
+    return value
+
+
 def _vector_payload(record: dict[str, Any], namespace: str, workspace: str) -> dict[str, Any]:
+    # Strip SUMMARY_MARKER from every value, not just known keys — VDB records are
+    # copied wholesale, so any upstream slip would otherwise ship the marker to Qdrant.
     payload = {
-        key: _coerce_scalar(value)
+        key: _strip_marker_deep(_coerce_scalar(value))
         for key, value in record.items()
         if key not in {"__id__", "__vector__", "__metrics__", "vector"}
     }

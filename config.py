@@ -52,9 +52,35 @@ DEFAULT_SUMMARY_MAX_TOKENS = int(os.getenv("GRAPHRAG_SUMMARY_MAX_TOKENS", "1024"
 DEFAULT_SUMMARY_LENGTH_RECOMMENDED = int(
     os.getenv("GRAPHRAG_SUMMARY_LENGTH_RECOMMENDED", "256")
 )
-DEFAULT_FORCE_LLM_SUMMARY_ON_MERGE = int(
-    os.getenv("GRAPHRAG_FORCE_LLM_SUMMARY_ON_MERGE", "3")
+# Two-zone description merge (core/summary.py): descriptions are stored as ONE
+# marker-tagged rolling summary of old mentions + a verbatim tail of the most recent
+# raw_tail_size descriptions. Compression fires only when the tail exceeds this count
+# or the field exceeds summary_context_size — never on a bare description count.
+# GRAPHRAG_FORCE_LLM_SUMMARY_ON_MERGE is honored as a legacy alias for the tail size.
+DEFAULT_RAW_TAIL_SIZE = int(
+    os.getenv(
+        "GRAPHRAG_RAW_TAIL_SIZE",
+        os.getenv("GRAPHRAG_FORCE_LLM_SUMMARY_ON_MERGE", "4"),
+    )
 )
+# Sentinel prefix identifying the single rolling-summary segment inside a SEP-joined
+# description field. Deliberately NOT env-configurable: changing it would orphan
+# markers already persisted in GRAPH_IS_HERE/. ASCII on purpose (tokenizer/grep-safe).
+#
+# CONTRACT — "storage keeps it, every exit strips it":
+# The marker exists ONLY inside GRAPH_IS_HERE/ (graph nodes/edges, incl. the
+# graphml artifact) so that the next merge can find the rolling-summary segment;
+# copying GRAPH_IS_HERE/ to another machine must preserve it. Every surface that
+# leaves storage must pass through core.utils.strip_summary_marker:
+#   - embedding content            core/merge.py (entity_content / rel_content)
+#   - relationship VDB payload     core/merge.py ("description" field)
+#   - LLM query context            core/query.py (_apply_token_truncation)
+#   - user-facing query results    core/utils.py (convert_to_user_format)
+#   - Neo4j export properties      core/export_adapters.py (_node/_edge_properties)
+#   - Qdrant export payloads       core/export_adapters.py (_vector_payload)
+# Adding a new export/output surface? Strip there too, and extend the guard test
+# in test/marker_leak_manual.py.
+SUMMARY_MARKER = "<<SUM>>"
 
 # ============================================================================
 # EMBEDDING DEFAULTS
@@ -271,7 +297,8 @@ def build_global_config(
         "summary_context_size": DEFAULT_SUMMARY_CONTEXT_TOKENS,     # Max tokens to show LLM for summarization
         "summary_max_tokens": DEFAULT_SUMMARY_MAX_TOKENS,           # Max tokens in final summary
         "summary_length_recommended": DEFAULT_SUMMARY_LENGTH_RECOMMENDED,  # Target summary length
-        "force_llm_summary_on_merge": DEFAULT_FORCE_LLM_SUMMARY_ON_MERGE,  # Use LLM if this many descriptions or more
+        "raw_tail_size": DEFAULT_RAW_TAIL_SIZE,                     # Verbatim recent descriptions kept outside the rolling summary
+        "force_llm_summary_on_merge": DEFAULT_RAW_TAIL_SIZE,        # Legacy alias of raw_tail_size (old count-based collapse policy removed)
         
         # ====================================================================
         # TOKEN LIMITS (used by utils.py, merge.py, query.py)

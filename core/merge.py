@@ -21,6 +21,7 @@ from core.utils import (
     performance_timing_log,
     safe_vdb_operation_with_exception,
     split_string_by_multi_markers,
+    strip_summary_marker,
 )
 
 
@@ -178,7 +179,8 @@ async def _merge_nodes_then_upsert(
         node_data["entity_name"] = entity_name
         if entity_vdb is not None:
             entity_vdb_id = compute_mdhash_id(str(entity_name), prefix="ent-")
-            entity_content = f"{entity_name}\n{description}"
+            # SUMMARY_MARKER is internal bookkeeping, never embedded content
+            entity_content = f"{entity_name}\n{strip_summary_marker(description)}"
             await safe_vdb_operation_with_exception(
                 operation=lambda payload={
                     entity_vdb_id: {
@@ -382,7 +384,7 @@ async def _merge_edges_then_upsert(
                         )
                 if entity_vdb is not None:
                     entity_vdb_id = compute_mdhash_id(need_insert_id, prefix="ent-")
-                    entity_content = f"{need_insert_id}\n{description}"
+                    entity_content = f"{need_insert_id}\n{strip_summary_marker(description)}"
                     await safe_vdb_operation_with_exception(
                         operation=lambda payload={
                             entity_vdb_id: {
@@ -437,7 +439,7 @@ async def _merge_edges_then_upsert(
                     await knowledge_graph_inst.upsert_node(need_insert_id, node_data=updated_node_data)
                     if entity_vdb is not None:
                         entity_vdb_id = compute_mdhash_id(need_insert_id, prefix="ent-")
-                        entity_content = f"{need_insert_id}\n{existing_node.get('description', '')}"
+                        entity_content = f"{need_insert_id}\n{strip_summary_marker(existing_node.get('description', ''))}"
                         await safe_vdb_operation_with_exception(
                             operation=lambda payload={
                                 entity_vdb_id: {
@@ -486,7 +488,7 @@ async def _merge_edges_then_upsert(
                 await relationships_vdb.delete([rel_vdb_id, rel_vdb_id_reverse])
             except Exception:
                 pass
-            rel_content = f"{keywords}\t{sorted_src}\n{sorted_tgt}\n{description}"
+            rel_content = f"{keywords}\t{sorted_src}\n{sorted_tgt}\n{strip_summary_marker(description)}"
             await safe_vdb_operation_with_exception(
                 operation=lambda payload={
                     rel_vdb_id: {
@@ -495,7 +497,7 @@ async def _merge_edges_then_upsert(
                         "source_id": source_id,
                         "content": rel_content,
                         "keywords": keywords,
-                        "description": description,
+                        "description": strip_summary_marker(description),
                         "weight": weight,
                         "file_path": file_path,
                     }

@@ -37,6 +37,7 @@ from core.utils import (
     remove_think_tags,
     save_to_cache,
     split_string_by_multi_markers,
+    strip_summary_marker,
     truncate_list_by_token_size,
     use_llm_func_with_cache,
     CacheData,
@@ -417,7 +418,8 @@ async def _apply_token_truncation(
             {
                 "entity": entity_name,
                 "type": entity.get("entity_type", "UNKNOWN"),
-                "description": entity.get("description", "UNKNOWN"),
+                # marker is internal bookkeeping — keep it out of the LLM context
+                "description": strip_summary_marker(entity.get("description", "UNKNOWN")),
                 "created_at": created_at,
                 "file_path": entity.get("file_path", "unknown_source"),
             }
@@ -436,7 +438,7 @@ async def _apply_token_truncation(
             {
                 "entity1": entity1,
                 "entity2": entity2,
-                "description": relation.get("description", "UNKNOWN"),
+                "description": strip_summary_marker(relation.get("description", "UNKNOWN")),
                 "created_at": created_at,
                 "file_path": relation.get("file_path", "unknown_source"),
             }
