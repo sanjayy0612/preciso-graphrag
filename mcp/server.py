@@ -333,11 +333,13 @@ async def query_graph_tool(
               - "How is Apple related to Microsoft?"
         
         mode (str): Query strategy (default: "mix")
-            Options:
-              - "mix"    → Combine graph + vector search (best for most cases)
-              - "kg"     → Graph traversal only (exact relationships)
-              - "vector" → Vector similarity only (semantic search)
-              - "hyb"    → Hybrid approach
+            Options (must be one of exactly these six values):
+              - "local"  → Entity-centric: low-level keywords → entity vector search → graph neighborhood
+              - "global" → Relationship-centric: high-level keywords → relationship vector search
+              - "hybrid" → local + global combined (comparison queries auto-upgrade to "global")
+              - "mix"    → hybrid + direct chunk vector search (best for most cases)
+              - "naive"  → Accepted for compatibility; currently retrieves the same as "hybrid"
+              - "bypass" → Accepted for compatibility; currently retrieves the same as "hybrid"
     
     PROCESS:
         1. Extracts keywords from query

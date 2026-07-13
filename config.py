@@ -315,9 +315,6 @@ def build_global_config(
         # ====================================================================
         "related_chunk_number": DEFAULT_RELATED_CHUNK_NUMBER,  # Chunks to retrieve per query
         "kg_chunk_pick_method": DEFAULT_KG_CHUNK_PICK_METHOD,  # How to select chunks: "WEIGHT" or others
-        "max_entity_tokens": DEFAULT_MAX_ENTITY_TOKENS,
-        "max_relation_tokens": DEFAULT_MAX_RELATION_TOKENS,
-        "max_total_tokens": DEFAULT_MAX_TOTAL_TOKENS,
         
         # ====================================================================
         # SOURCE ID TRACKING (used by merge.py)
