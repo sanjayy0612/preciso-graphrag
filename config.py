@@ -266,8 +266,22 @@ def build_default_embedding_func() -> Any:
         try:
             import asyncio
 
-            # Call the async embedder to get a real embedding shape
-            embeddings = asyncio.run(_ollama_embed(["test"], model=DEFAULT_EMBEDDING_MODEL))
+            # Call the async embedder to get a real embedding shape. This probe
+            # may run during server startup, which can already be inside an
+            # event loop (e.g. `asyncio.run(startup())`) — asyncio.run() cannot
+            # nest, so run the probe on a dedicated thread with its own loop
+            # whenever one is already running.
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                embeddings = asyncio.run(_ollama_embed(["test"], model=DEFAULT_EMBEDDING_MODEL))
+            else:
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    embeddings = pool.submit(
+                        lambda: asyncio.run(_ollama_embed(["test"], model=DEFAULT_EMBEDDING_MODEL))
+                    ).result()
             if embeddings and isinstance(embeddings, list) and len(embeddings) > 0:
                 first = embeddings[0]
                 detected_dim = len(first)
