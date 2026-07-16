@@ -43,7 +43,6 @@ def test_apply_limit_zero_or_negative_empties():
 async def _merge_n_mentions(method: str, limit: int, n: int) -> dict:
     """Run n single-mention merges of one entity through the real merge path."""
     config = make_merge_config(
-        None,  # no LLM needed: descriptions stay tiny
         source_ids_limit_method=method,
         max_source_ids=limit,
     )
