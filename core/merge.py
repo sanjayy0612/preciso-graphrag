@@ -153,8 +153,6 @@ async def _merge_nodes_then_upsert(
         if not description_list:
             description_list = [f"Entity {entity_name}"]
         description, summary_reason = _handle_entity_relation_summary(
-            "Entity",
-            entity_name,
             description_list,
             GRAPH_FIELD_SEP,
             global_config,
@@ -359,8 +357,6 @@ async def _merge_edges_then_upsert(
         if not description_list:
             raise ValueError(f"Relation {src_id}~{tgt_id} has no description")
         description, summary_reason = _handle_entity_relation_summary(
-            "Relation",
-            f"({src_id}, {tgt_id})",
             description_list,
             GRAPH_FIELD_SEP,
             global_config,
