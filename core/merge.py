@@ -11,7 +11,7 @@ from config import (
     SOURCE_IDS_LIMIT_METHOD_KEEP,
 )
 from core.storage.base import BaseGraphStorage, BaseKVStorage, BaseVectorStorage
-from core.summary import _handle_entity_relation_summary
+from core.summary import _handle_entity_relation_summary, _split_summary_zones
 from core.utils import (
     _cooperative_yield,
     apply_source_ids_limit,
@@ -25,6 +25,54 @@ from core.utils import (
 )
 
 
+async def _sync_pending_summary_record(
+    pending_summaries_storage: BaseKVStorage | None,
+    *,
+    key: str,
+    kind: str,
+    name: str,
+    src: str | None,
+    tgt: str | None,
+    summary_reason: str | None,
+    description_list: list[str],
+    global_config: dict,
+) -> None:
+    """Write or clear the pending-summary work-queue record for `key`.
+
+    Called after every merge, in every summary_mode: `_handle_entity_relation_summary`
+    only returns "summary_pending" when summary_mode == "agent", so this is a no-op
+    write in "llm"/"verbatim" modes. When a later merge brings the field back within
+    bounds (summary_reason is no longer "summary_pending"), the stale record is
+    cleared here too — the pending store is a work queue, not authoritative content.
+    """
+    if pending_summaries_storage is None:
+        return
+    if summary_reason == "summary_pending":
+        # Classify WHY compression is needed the same way the real (LLM) fold path
+        # would, purely for the agent's benefit — this never gates behavior.
+        raw_tail_size = max(
+            0,
+            int(global_config.get("raw_tail_size", global_config.get("force_llm_summary_on_merge", 4))),
+        )
+        _, raw_tail_probe = _split_summary_zones(description_list)
+        pending_reason = "merge_policy" if len(raw_tail_probe) > raw_tail_size else "token_limit"
+        await pending_summaries_storage.upsert(
+            {
+                key: {
+                    "kind": kind,
+                    "name": name,
+                    "src": src,
+                    "tgt": tgt,
+                    "reason": pending_reason,
+                    "description_count": len(description_list),
+                    "created_at": int(time.time()),
+                }
+            }
+        )
+    else:
+        await pending_summaries_storage.delete([key])
+
+
 async def _merge_nodes_then_upsert(
     entity_name: str,
     nodes_data: list[dict],
@@ -35,6 +83,7 @@ async def _merge_nodes_then_upsert(
     pipeline_status_lock=None,
     llm_response_cache: BaseKVStorage | None = None,
     entity_chunks_storage: BaseKVStorage | None = None,
+    pending_summaries_storage: BaseKVStorage | None = None,
 ):
     timing_start = time.perf_counter()
     try:
@@ -130,6 +179,17 @@ async def _merge_nodes_then_upsert(
                     "description_count": len(description_list),
                 }
             )
+        await _sync_pending_summary_record(
+            pending_summaries_storage,
+            key=entity_name,
+            kind="entity",
+            name=entity_name,
+            src=None,
+            tgt=None,
+            summary_reason=summary_reason,
+            description_list=description_list,
+            global_config=global_config,
+        )
         file_paths_list = []
         seen_paths = set()
         has_placeholder = False
@@ -219,6 +279,7 @@ async def _merge_edges_then_upsert(
     added_entities: list = None,
     relation_chunks_storage: BaseKVStorage | None = None,
     entity_chunks_storage: BaseKVStorage | None = None,
+    pending_summaries_storage: BaseKVStorage | None = None,
 ):
     timing_start = time.perf_counter()
     timing_relation = f"`{src_id}`~`{tgt_id}`"
@@ -327,6 +388,17 @@ async def _merge_edges_then_upsert(
                     "description_count": len(description_list),
                 }
             )
+        await _sync_pending_summary_record(
+            pending_summaries_storage,
+            key=make_relation_chunk_key(src_id, tgt_id),
+            kind="relation",
+            name=timing_relation,
+            src=src_id,
+            tgt=tgt_id,
+            summary_reason=summary_reason,
+            description_list=description_list,
+            global_config=global_config,
+        )
         file_paths_list = []
         seen_paths = set()
         has_placeholder = False

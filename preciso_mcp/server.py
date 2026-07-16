@@ -17,6 +17,7 @@ from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
 from preciso_mcp.tools.export_tool import export_to_neo4j, export_to_qdrant
 from preciso_mcp.tools.ingest_from_file_tool import ingest_from_file, reingest_from_file
+from preciso_mcp.tools.pending_summaries_tool import list_pending_summaries, submit_summary
 from preciso_mcp.tools.reconcile_tool import ingest_with_reconciliation
 from preciso_mcp.tools.status_tool import get_server_status
 
@@ -424,6 +425,46 @@ async def query_graph_tool(
     except Exception as exc:
         logger.exception("query_graph_tool failed (mode=%s)", mode)
         return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool(
+    name="list_pending_summaries",
+    description=(
+        "List entities/relationships deferred for agent summarization "
+        "(GRAPHRAG_SUMMARY_MODE=agent), with the live verbatim content to compress: "
+        "prior_summary, old_descriptions (aged out of the raw tail), and keep_tail "
+        "(the most recent descriptions, kept verbatim regardless)."
+    ),
+)
+async def list_pending_summaries_tool(limit: int = 50) -> dict:
+    return await list_pending_summaries(storage_instances, global_config, limit=limit)
+
+
+@mcp.tool(
+    name="submit_summary",
+    description=(
+        "Submit an agent-written rolling summary for a pending entity or relationship "
+        "(from list_pending_summaries). Replaces the old_descriptions zone with the "
+        "summary, keeps keep_tail verbatim, re-embeds, and clears the pending record. "
+        "kind='entity' needs name; kind='relation' needs src and tgt (name is informational)."
+    ),
+)
+async def submit_summary_tool(
+    name: str,
+    kind: Literal["entity", "relation"],
+    summary_text: str,
+    src: str | None = None,
+    tgt: str | None = None,
+) -> dict:
+    return await submit_summary(
+        storage_instances,
+        global_config,
+        name=name,
+        kind=kind,
+        summary_text=summary_text,
+        src=src,
+        tgt=tgt,
+    )
 
 
 async def startup() -> None:

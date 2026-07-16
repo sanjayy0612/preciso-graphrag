@@ -56,6 +56,9 @@ class StubGraph:
     async def upsert_edge(self, src, tgt, edge_data):
         self.edges[self._key(src, tgt)] = dict(edge_data)
 
+    async def index_done_callback(self):
+        pass
+
 
 class StubVDB:
     """Captures every payload the merge path would embed/export."""
@@ -65,6 +68,9 @@ class StubVDB:
 
     async def upsert(self, payload):
         self.records.update({k: dict(v) for k, v in payload.items()})
+
+    async def index_done_callback(self):
+        pass
 
     async def delete(self, ids):
         for record_id in ids:

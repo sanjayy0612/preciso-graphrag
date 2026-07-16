@@ -65,7 +65,7 @@ DEFAULT_SUMMARY_LENGTH_RECOMMENDED = int(
 DEFAULT_RAW_TAIL_SIZE = int(
     os.getenv(
         "GRAPHRAG_RAW_TAIL_SIZE",
-        os.getenv("GRAPHRAG_FORCE_LLM_SUMMARY_ON_MERGE", "4"),
+        os.getenv("GRAPHRAG_FORCE_LLM_SUMMARY_ON_MERGE", "8"),
     )
 )
 # Sentinel prefix identifying the single rolling-summary segment inside a SEP-joined
@@ -83,9 +83,25 @@ DEFAULT_RAW_TAIL_SIZE = int(
 #   - user-facing query results    core/utils.py (convert_to_user_format)
 #   - Neo4j export properties      core/export_adapters.py (_node/_edge_properties)
 #   - Qdrant export payloads       core/export_adapters.py (_vector_payload)
+#   - agent-summary tool outputs   preciso_mcp/tools/pending_summaries_tool.py
+#                                   (list_pending_summaries' content_to_summarize
+#                                   is read from raw_tail — never marker-tagged
+#                                   by construction; submit_summary re-embeds via
+#                                   the same entity_content/rel_content path above)
 # Adding a new export/output surface? Strip there too, and extend the guard test
-# in test/marker_leak_manual.py.
+# in test/marker_leak_manual.py (and tests/test_marker_leak.py).
 SUMMARY_MARKER = "<<SUM>>"
+
+# Description-compression strategy (core/summary.py, core/merge.py):
+#   "llm"      — compress via llm_model_func.
+#   "agent"    (default) — never call an LLM; when compression is needed, defer: keep
+#                everything verbatim, flag the entity/relation "pending", and
+#                let the MCP-driving agent read/write the summary via the
+#                list_pending_summaries / submit_summary tools.
+#   "verbatim" — never call an LLM and never queue pending work; identical to
+#                today's no-LLM-configured fallback (reason "summary_required").
+DEFAULT_SUMMARY_MODE = os.getenv("GRAPHRAG_SUMMARY_MODE", "agent").strip().lower()
+VALID_SUMMARY_MODES = {"llm", "agent", "verbatim"}
 
 # ============================================================================
 # EMBEDDING DEFAULTS
@@ -385,6 +401,7 @@ def build_global_config(
         "summary_length_recommended": DEFAULT_SUMMARY_LENGTH_RECOMMENDED,  # Target summary length
         "raw_tail_size": DEFAULT_RAW_TAIL_SIZE,                     # Verbatim recent descriptions kept outside the rolling summary
         "force_llm_summary_on_merge": DEFAULT_RAW_TAIL_SIZE,        # Legacy alias of raw_tail_size (old count-based collapse policy removed)
+        "summary_mode": DEFAULT_SUMMARY_MODE,                       # "llm" | "agent" | "verbatim" — see SUMMARY_MARKER comment above
         
         # ====================================================================
         # TOKEN LIMITS (used by utils.py, merge.py, query.py)

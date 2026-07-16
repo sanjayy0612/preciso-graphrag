@@ -201,6 +201,7 @@ async def _handle_entity_relation_summary(
         return "", False, None
     tokenizer = global_config["tokenizer"]
     use_llm_func = global_config["llm_model_func"]
+    summary_mode = global_config.get("summary_mode", "agent")
     summary_context_size = global_config["summary_context_size"]
     summary_max_tokens = global_config["summary_max_tokens"]
     # raw_tail_size supersedes the old force_llm_summary_on_merge count policy
@@ -230,9 +231,21 @@ async def _handle_entity_relation_summary(
     ):
         return _assemble_description(prior_summary, raw_tail, separator), False, None
 
-    # Compression needed but no LLM available: never call the LLM, keep everything
-    # verbatim, and surface the degraded "summary_required" signal.
-    if use_llm_func is None:
+    # "agent" mode: never call an LLM. Keep everything verbatim and defer
+    # compression to the MCP-driving agent (see preciso_mcp/tools/pending_summaries_tool.py).
+    # Checked before the use_llm_func is None branch so this holds even if an
+    # LLM happens to be configured — the mode, not the func, decides here.
+    if summary_mode == "agent":
+        return (
+            _assemble_description(prior_summary, raw_tail, separator),
+            False,
+            "summary_pending",
+        )
+
+    # "verbatim" mode, or compression needed but no LLM available: never call
+    # the LLM, keep everything verbatim, and surface the degraded
+    # "summary_required" signal (no pending queue involved).
+    if summary_mode == "verbatim" or use_llm_func is None:
         return (
             _assemble_description(prior_summary, raw_tail, separator),
             False,

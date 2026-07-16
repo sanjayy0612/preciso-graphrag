@@ -92,9 +92,15 @@ def _build_llm_status(global_config: dict[str, Any]) -> tuple[dict[str, Any], li
         if model is None:
             model = getattr(llm_func, "__name__", "custom")
     else:
-        warnings.append(
-            "LLM summarization is not configured; extraction and graph creation still work, but summary generation is skipped."
-        )
+        summary_mode = global_config.get("summary_mode", "agent")
+        if summary_mode == "agent":
+            # No LLM is expected here — summaries are deferred to the MCP-driving
+            # agent, not skipped. Not a warning; see the pending_summaries count.
+            pass
+        else:
+            warnings.append(
+                "LLM summarization is not configured; extraction and graph creation still work, but summary generation is skipped."
+            )
 
     return {
         "configured": configured,
@@ -127,6 +133,14 @@ async def _get_text_chunk_stats(storage_instances: dict[str, Any]) -> dict[str, 
     return {"chunks": chunk_count, "documents": doc_count}
 
 
+async def _get_pending_summary_count(storage_instances: dict[str, Any]) -> int:
+    pending_summaries = storage_instances.get("pending_summaries")
+    if pending_summaries is None:
+        return 0
+    async with pending_summaries._storage_lock:
+        return len(pending_summaries._data)
+
+
 async def build_runtime_status(
     storage_instances: dict[str, Any],
     global_config: dict[str, Any],
@@ -140,6 +154,7 @@ async def build_runtime_status(
 
     counts = await _get_graph_counts(storage_instances)
     chunk_stats = await _get_text_chunk_stats(storage_instances)
+    pending_summary_count = await _get_pending_summary_count(storage_instances)
     working_dir = _resolve_working_dir(global_config)
 
     overall = "ready" if not warnings else "degraded"
@@ -157,6 +172,9 @@ async def build_runtime_status(
             "chunks": chunk_stats["chunks"],
         },
         "llm": llm_info,
+        # Informational, not a degraded-state signal: count of entities/relations
+        # deferred to the agent in summary_mode="agent". See pending_summaries_tool.py.
+        "pending_summaries": pending_summary_count,
         "updated_at": int(time.time()),
     }
 

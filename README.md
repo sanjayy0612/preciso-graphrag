@@ -178,6 +178,8 @@ evals/              ← benchmark test cases and results
 | `ingest_graph_tool` | Ingest an inline extraction payload |
 | `ingest_with_reconciliation_tool` | Ingest after reconciliation subagents finish |
 | `query_graph_tool` | Query the persisted graph |
+| `list_pending_summaries` | Agent-handshake mode only: entities/relations deferred for you to summarize |
+| `submit_summary` | Agent-handshake mode only: submit your summary for a pending entity/relation |
 | `export_graph_to_neo4j` | Optional: push graph structure to Neo4j |
 | `export_vectors_to_qdrant` | Optional: push vector artifacts to Qdrant |
 

@@ -29,6 +29,11 @@ def build_storage_instances(global_config: dict, workspace: str = "") -> dict:
             embedding_func=None,
             **shared_kwargs,
         ),
+        "pending_summaries": JsonKVStorage(
+            namespace="pending_summaries",
+            embedding_func=None,
+            **shared_kwargs,
+        ),
         "llm_cache": JsonKVStorage(
             namespace="llm_cache",
             embedding_func=None,

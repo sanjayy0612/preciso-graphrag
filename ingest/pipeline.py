@@ -35,6 +35,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
         llm_cache = storage_instances.get("llm_cache")
         entity_chunks = storage_instances.get("entity_chunks")
         relation_chunks = storage_instances.get("relation_chunks")
+        pending_summaries = storage_instances.get("pending_summaries")
         errors: list[str] = []
 
         max_chunk_tokens = global_config.get("embedding_token_limit")
@@ -80,10 +81,13 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             if not isinstance(chunk, dict):
                 errors.append(f"chunk at index {idx} must be an object")
                 continue
-            chunk_id = str(
+            raw_chunk_id = str(
                 chunk.get("chunk_id")
                 or compute_mdhash_id(f"{document_id}:{idx}:{chunk.get('content', '')}", prefix="chunk-")
             )
+            # Namespace by document_id so chunk IDs stay globally unique even when
+            # multiple extraction files reuse the same internal numbering (chunk_001, ...).
+            chunk_id = f"{document_id}::{raw_chunk_id}"
             content = str(chunk.get("content", "")).strip()
             if not content:
                 errors.append(f"chunk `{chunk_id}` has empty content")
@@ -127,7 +131,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             if not ok:
                 errors.append(reason)
                 continue
-            entity_name, node_list = agent_json_to_nodes_data(entity, timestamp)
+            entity_name, node_list = agent_json_to_nodes_data(entity, timestamp, document_id)
             grouped_nodes[entity_name].extend(node_list)
             known_entities.add(entity_name)
 
@@ -137,7 +141,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             if not ok:
                 errors.append(reason)
                 continue
-            src_id, tgt_id, edge_list = agent_json_to_edges_data(rel, timestamp)
+            src_id, tgt_id, edge_list = agent_json_to_edges_data(rel, timestamp, document_id)
             grouped_edges[(src_id, tgt_id)].extend(edge_list)
 
         pipeline_status = {"summary_events": []}
@@ -153,6 +157,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     pipeline_status=pipeline_status,
                     llm_response_cache=llm_cache,
                     entity_chunks_storage=entity_chunks,
+                    pending_summaries_storage=pending_summaries,
                 )
                 if node_data is not None:
                     merged_nodes.append(node_data)
@@ -173,6 +178,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     llm_response_cache=llm_cache,
                     relation_chunks_storage=relation_chunks,
                     entity_chunks_storage=entity_chunks,
+                    pending_summaries_storage=pending_summaries,
                 )
                 if edge_data is not None:
                     merged_edges.append(edge_data)
