@@ -182,6 +182,13 @@ class BaseKVStorage(StorageNameSpace, ABC):
     async def is_empty(self) -> bool:
         ...
 
+    @abstractmethod
+    async def get_all_items(self) -> dict[str, dict[str, Any]]:
+        """Return a snapshot of every stored item, keyed by id. Lets callers
+        enumerate/count a KV store's contents without reaching into a specific
+        backend's private attributes."""
+        ...
+
 
 @dataclass
 class BaseGraphStorage(StorageNameSpace, ABC):
