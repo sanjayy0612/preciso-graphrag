@@ -79,7 +79,15 @@ def _build_embedding_status(global_config: dict[str, Any]) -> tuple[dict[str, An
 
 
 def _build_llm_status(global_config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    warnings: list[str] = []
+    """Report whether an LLM is configured for query-time answer synthesis.
+
+    Description compression never uses an LLM (see core/summary.py) — it's
+    always deferred to the MCP-driving agent via the pending_summaries queue,
+    so an absent llm_model_func has no bearing on that. A missing LLM here only
+    means kg_query() returns raw retrieved context instead of a synthesized
+    answer (core/query.py), which is a fully supported, non-degraded mode —
+    not worth a warning.
+    """
     llm_func = global_config.get("llm_model_func")
     configured = llm_func is not None
     status = "active" if configured else "inactive"
@@ -91,23 +99,13 @@ def _build_llm_status(global_config: dict[str, Any]) -> tuple[dict[str, Any], li
             provider = getattr(llm_func, "__module__", "custom")
         if model is None:
             model = getattr(llm_func, "__name__", "custom")
-    else:
-        summary_mode = global_config.get("summary_mode", "agent")
-        if summary_mode == "agent":
-            # No LLM is expected here — summaries are deferred to the MCP-driving
-            # agent, not skipped. Not a warning; see the pending_summaries count.
-            pass
-        else:
-            warnings.append(
-                "LLM summarization is not configured; extraction and graph creation still work, but summary generation is skipped."
-            )
 
     return {
         "configured": configured,
         "provider": provider,
         "model": model,
         "status": status,
-    }, warnings
+    }, []
 
 
 async def _get_graph_counts(storage_instances: dict[str, Any]) -> dict[str, int]:
@@ -125,8 +123,7 @@ async def _get_text_chunk_stats(storage_instances: dict[str, Any]) -> dict[str, 
     text_chunks = storage_instances.get("text_chunks")
     if text_chunks is None:
         return {"chunks": 0, "documents": 0}
-    async with text_chunks._storage_lock:
-        values = list(text_chunks._data.values())
+    values = list((await text_chunks.get_all_items()).values())
     chunk_count = len(values)
     doc_ids = {item.get("full_doc_id") for item in values if isinstance(item, dict)}
     doc_count = len({doc_id for doc_id in doc_ids if doc_id})
@@ -137,8 +134,7 @@ async def _get_pending_summary_count(storage_instances: dict[str, Any]) -> int:
     pending_summaries = storage_instances.get("pending_summaries")
     if pending_summaries is None:
         return 0
-    async with pending_summaries._storage_lock:
-        return len(pending_summaries._data)
+    return len(await pending_summaries.get_all_items())
 
 
 async def build_runtime_status(
@@ -173,7 +169,7 @@ async def build_runtime_status(
         },
         "llm": llm_info,
         # Informational, not a degraded-state signal: count of entities/relations
-        # deferred to the agent in summary_mode="agent". See pending_summaries_tool.py.
+        # whose descriptions need agent compression. See pending_summaries_tool.py.
         "pending_summaries": pending_summary_count,
         "updated_at": int(time.time()),
     }
