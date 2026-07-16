@@ -11,7 +11,7 @@ from config import (
     SOURCE_IDS_LIMIT_METHOD_KEEP,
 )
 from core.storage.base import BaseGraphStorage, BaseKVStorage, BaseVectorStorage
-from core.summary import _handle_entity_relation_summary, _split_summary_zones
+from core.summary import PENDING_SUMMARY_REASON, _handle_entity_relation_summary
 from core.utils import (
     _cooperative_yield,
     apply_source_ids_limit,
@@ -34,28 +34,20 @@ async def _sync_pending_summary_record(
     src: str | None,
     tgt: str | None,
     summary_reason: str | None,
-    description_list: list[str],
-    global_config: dict,
+    description_count: int,
 ) -> None:
     """Write or clear the pending-summary work-queue record for `key`.
 
-    Called after every merge, in every summary_mode: `_handle_entity_relation_summary`
-    only returns "summary_pending" when summary_mode == "agent", so this is a no-op
-    write in "llm"/"verbatim" modes. When a later merge brings the field back within
-    bounds (summary_reason is no longer "summary_pending"), the stale record is
-    cleared here too — the pending store is a work queue, not authoritative content.
+    Called after every merge. When a later merge brings the field back within
+    bounds (summary_reason is no longer PENDING_SUMMARY_REASON), the stale
+    record is cleared here too — the pending store is a work queue, not
+    authoritative content. `description_count` doubles as an optimistic-
+    concurrency token: submit_summary rejects a submission if the live count has
+    moved since the agent last read it via list_pending_summaries.
     """
     if pending_summaries_storage is None:
         return
-    if summary_reason == "summary_pending":
-        # Classify WHY compression is needed the same way the real (LLM) fold path
-        # would, purely for the agent's benefit — this never gates behavior.
-        raw_tail_size = max(
-            0,
-            int(global_config.get("raw_tail_size", global_config.get("force_llm_summary_on_merge", 4))),
-        )
-        _, raw_tail_probe = _split_summary_zones(description_list)
-        pending_reason = "merge_policy" if len(raw_tail_probe) > raw_tail_size else "token_limit"
+    if summary_reason == PENDING_SUMMARY_REASON:
         await pending_summaries_storage.upsert(
             {
                 key: {
@@ -63,8 +55,7 @@ async def _sync_pending_summary_record(
                     "name": name,
                     "src": src,
                     "tgt": tgt,
-                    "reason": pending_reason,
-                    "description_count": len(description_list),
+                    "description_count": description_count,
                     "created_at": int(time.time()),
                 }
             }
@@ -81,7 +72,6 @@ async def _merge_nodes_then_upsert(
     global_config: dict,
     pipeline_status: dict = None,
     pipeline_status_lock=None,
-    llm_response_cache: BaseKVStorage | None = None,
     entity_chunks_storage: BaseKVStorage | None = None,
     pending_summaries_storage: BaseKVStorage | None = None,
 ):
@@ -162,13 +152,12 @@ async def _merge_nodes_then_upsert(
         description_list = already_description + [dp["description"] for dp in sorted_nodes]
         if not description_list:
             description_list = [f"Entity {entity_name}"]
-        description, llm_was_used, summary_reason = await _handle_entity_relation_summary(
+        description, summary_reason = _handle_entity_relation_summary(
             "Entity",
             entity_name,
             description_list,
             GRAPH_FIELD_SEP,
             global_config,
-            llm_response_cache,
         )
         if pipeline_status is not None and summary_reason:
             pipeline_status.setdefault("summary_events", []).append(
@@ -187,8 +176,7 @@ async def _merge_nodes_then_upsert(
             src=None,
             tgt=None,
             summary_reason=summary_reason,
-            description_list=description_list,
-            global_config=global_config,
+            description_count=len(description_list),
         )
         file_paths_list = []
         seen_paths = set()
@@ -275,7 +263,6 @@ async def _merge_edges_then_upsert(
     global_config: dict,
     pipeline_status: dict = None,
     pipeline_status_lock=None,
-    llm_response_cache: BaseKVStorage | None = None,
     added_entities: list = None,
     relation_chunks_storage: BaseKVStorage | None = None,
     entity_chunks_storage: BaseKVStorage | None = None,
@@ -371,13 +358,12 @@ async def _merge_edges_then_upsert(
         description_list = already_description + [dp["description"] for dp in sorted_edges]
         if not description_list:
             raise ValueError(f"Relation {src_id}~{tgt_id} has no description")
-        description, _llm_was_used, summary_reason = await _handle_entity_relation_summary(
+        description, summary_reason = _handle_entity_relation_summary(
             "Relation",
             f"({src_id}, {tgt_id})",
             description_list,
             GRAPH_FIELD_SEP,
             global_config,
-            llm_response_cache,
         )
         if pipeline_status is not None and summary_reason:
             pipeline_status.setdefault("summary_events", []).append(
@@ -396,8 +382,7 @@ async def _merge_edges_then_upsert(
             src=src_id,
             tgt=tgt_id,
             summary_reason=summary_reason,
-            description_list=description_list,
-            global_config=global_config,
+            description_count=len(description_list),
         )
         file_paths_list = []
         seen_paths = set()
