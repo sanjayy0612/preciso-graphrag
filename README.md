@@ -224,13 +224,17 @@ Always call `get_server_status()` first. It reports embedding mode, graph health
 {
   "overall": "degraded",
   "warnings": [
-    "Fallback embeddings active — graph creation works, vector search quality reduced.",
-    "LLM summarization not configured — extraction works, summary generation skipped."
+    "Fallback embeddings active — graph creation works, vector search quality reduced."
   ],
   "embedding": { "mode": "fallback", "status": "degraded" },
   "llm": { "configured": false, "status": "inactive" }
 }
 ```
+
+Note: `llm.configured: false` is not itself a warning — description compression never
+uses an LLM (it's always deferred to the agent via `pending_summaries`, see
+`docs/agent-summarization.md`), and query-time answer synthesis just falls back to
+raw retrieved context when no LLM is configured.
 
 </details>
 
