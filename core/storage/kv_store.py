@@ -106,6 +106,10 @@ class JsonKVStorage(BaseKVStorage):
         async with self._storage_lock:
             return len(self._data) == 0
 
+    async def get_all_items(self) -> dict[str, dict[str, Any]]:
+        async with self._storage_lock:
+            return {k: dict(v) for k, v in self._data.items()}
+
     async def drop(self) -> dict[str, str]:
         try:
             async with self._storage_lock:

@@ -32,7 +32,6 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
         graph = storage_instances["graph"]
         entities_vdb = storage_instances["entities_vdb"]
         relationships_vdb = storage_instances["relationships_vdb"]
-        llm_cache = storage_instances.get("llm_cache")
         entity_chunks = storage_instances.get("entity_chunks")
         relation_chunks = storage_instances.get("relation_chunks")
         pending_summaries = storage_instances.get("pending_summaries")
@@ -155,7 +154,6 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     entity_vdb=entities_vdb,
                     global_config=global_config,
                     pipeline_status=pipeline_status,
-                    llm_response_cache=llm_cache,
                     entity_chunks_storage=entity_chunks,
                     pending_summaries_storage=pending_summaries,
                 )
@@ -175,7 +173,6 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     entity_vdb=entities_vdb,
                     global_config=global_config,
                     pipeline_status=pipeline_status,
-                    llm_response_cache=llm_cache,
                     relation_chunks_storage=relation_chunks,
                     entity_chunks_storage=entity_chunks,
                     pending_summaries_storage=pending_summaries,
@@ -192,18 +189,11 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             await entity_chunks.index_done_callback()
         if relation_chunks is not None:
             await relation_chunks.index_done_callback()
+        if pending_summaries is not None:
+            await pending_summaries.index_done_callback()
         await update_artifact_manifest(storage_instances, global_config)
 
         status = "success" if not errors else "partial_success"
-        if (
-            pipeline_status.get("summary_events")
-            and global_config.get("llm_model_func") is None
-            and any(
-                event.get("reason") == "summary_required"
-                for event in pipeline_status.get("summary_events", [])
-            )
-        ):
-            status = "summary_required"
         result = {
             "status": status,
             "message": f"Ingested document `{document_id}`",
@@ -214,11 +204,6 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             "relationships_merged": len(merged_edges),
             "errors": errors,
         }
-        if status == "summary_required":
-            result["message"] = (
-                f"Summary required for `{document_id}`. One or more descriptions exceed "
-                "token limits and no LLM is configured. Provide summarized descriptions and reingest."
-            )
         if pipeline_status.get("summary_events"):
             result["summary_events"] = pipeline_status["summary_events"]
         return result

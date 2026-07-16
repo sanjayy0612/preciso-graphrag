@@ -21,17 +21,6 @@ class StubTokenizer:
         return " ".join(tokens)
 
 
-class StubLLM:
-    """Deterministic summarizer stub; counts calls."""
-
-    def __init__(self):
-        self.calls = 0
-
-    async def __call__(self, prompt, system_prompt=None, **kwargs):
-        self.calls += 1
-        return f"stub rolling summary number {self.calls}"
-
-
 class StubGraph:
     def __init__(self):
         self.nodes: dict[str, dict] = {}
@@ -78,7 +67,6 @@ class StubVDB:
 
 
 def make_merge_config(
-    llm=None,
     *,
     raw_tail_size: int = 4,
     context: int = 200,
@@ -87,14 +75,11 @@ def make_merge_config(
     max_source_ids: int = 100,
 ) -> dict:
     return {
-        "llm_model_func": llm,
+        "llm_model_func": None,  # summary compression never uses an LLM (core/summary.py)
         "tokenizer": StubTokenizer(),
         "summary_context_size": context,
         "summary_max_tokens": summary_max,
-        "summary_length_recommended": 30,
         "raw_tail_size": raw_tail_size,
-        "force_llm_summary_on_merge": raw_tail_size,  # legacy alias
-        "addon_params": {},
         "source_ids_limit_method": source_ids_limit_method,
         "max_source_ids_per_entity": max_source_ids,
         "max_source_ids_per_relation": max_source_ids,

@@ -430,10 +430,12 @@ async def query_graph_tool(
 @mcp.tool(
     name="list_pending_summaries",
     description=(
-        "List entities/relationships deferred for agent summarization "
-        "(GRAPHRAG_SUMMARY_MODE=agent), with the live verbatim content to compress: "
+        "List entities/relationships whose descriptions have outgrown their bounds "
+        "and need agent summarization, with the live verbatim content to compress: "
         "prior_summary, old_descriptions (aged out of the raw tail), and keep_tail "
-        "(the most recent descriptions, kept verbatim regardless)."
+        "(the most recent descriptions, kept verbatim regardless). Each item's "
+        "description_count must be echoed back to submit_summary as "
+        "expected_description_count."
     ),
 )
 async def list_pending_summaries_tool(limit: int = 50) -> dict:
@@ -446,13 +448,17 @@ async def list_pending_summaries_tool(limit: int = 50) -> dict:
         "Submit an agent-written rolling summary for a pending entity or relationship "
         "(from list_pending_summaries). Replaces the old_descriptions zone with the "
         "summary, keeps keep_tail verbatim, re-embeds, and clears the pending record. "
-        "kind='entity' needs name; kind='relation' needs src and tgt (name is informational)."
+        "kind='entity' needs name; kind='relation' needs src and tgt (name is informational). "
+        "expected_description_count must be the description_count value list_pending_summaries "
+        "returned for this item — if a new merge landed since then, the submission is "
+        "rejected so nothing is silently dropped; re-fetch and retry."
     ),
 )
 async def submit_summary_tool(
     name: str,
     kind: Literal["entity", "relation"],
     summary_text: str,
+    expected_description_count: int,
     src: str | None = None,
     tgt: str | None = None,
 ) -> dict:
@@ -462,6 +468,7 @@ async def submit_summary_tool(
         name=name,
         kind=kind,
         summary_text=summary_text,
+        expected_description_count=expected_description_count,
         src=src,
         tgt=tgt,
     )

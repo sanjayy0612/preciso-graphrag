@@ -6,15 +6,18 @@ CONTRACT comment above SUMMARY_MARKER in config.py):
     storage keeps the marker, every exit strips it.
 
 Drives the REAL merge write path (_merge_nodes_then_upsert /
-_merge_edges_then_upsert) with in-memory stubs until a rolling summary is
-forced, then asserts the marker:
+_merge_edges_then_upsert) with in-memory stubs until an entity/relation is
+flagged pending, then submits an agent-written summary via submit_summary —
+the only path that ever writes a SUMMARY_MARKER segment — and asserts the
+marker:
   - IS present in the stored graph node/edge description (storage keeps it),
   - is ABSENT from every VDB upsert payload value (embedding + Qdrant source),
   - is ABSENT from every convert_to_user_format field (user-facing results),
   - is ABSENT from the Neo4j adapter property dicts,
   - is ABSENT from the Qdrant _vector_payload, even for a hostile record.
+  - is ABSENT from list_pending_summaries / submit_summary tool outputs.
 
-Uses a deterministic LLM stub and tokenizer — no Ollama/network required.
+Uses a deterministic tokenizer — no Ollama/network required.
 
 Usage:
     python test/marker_leak_manual.py
@@ -34,9 +37,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from config import GRAPH_FIELD_SEP, SOURCE_IDS_LIMIT_METHOD_KEEP, SUMMARY_MARKER
 from core.export_adapters import _edge_properties, _node_properties, _vector_payload
 from core.merge import _merge_edges_then_upsert, _merge_nodes_then_upsert
-from core.utils import convert_to_user_format
+from core.utils import convert_to_user_format, make_relation_chunk_key
+from preciso_mcp.tools.pending_summaries_tool import list_pending_summaries, submit_summary
 
-RAW_TAIL_SIZE = 2  # small so a handful of merges forces the rolling summary
+RAW_TAIL_SIZE = 2  # small so a handful of merges forces a pending record
 N_MERGES = 8
 
 FAILURES: list[str] = []
@@ -62,13 +66,37 @@ class StubTokenizer:
         return " ".join(tokens)
 
 
-class StubLLM:
-    def __init__(self):
-        self.calls = 0
+class _NullLock:
+    async def __aenter__(self):
+        return self
 
-    async def __call__(self, prompt, system_prompt=None, **kwargs):
-        self.calls += 1
-        return f"stub rolling summary number {self.calls}"
+    async def __aexit__(self, *exc):
+        return False
+
+
+class StubPendingKV:
+    """Minimal pending_summaries stand-in: the subset of JsonKVStorage the
+    pending-summary tools and _sync_pending_summary_record actually use."""
+
+    def __init__(self):
+        self._data: dict = {}
+        self._storage_lock = _NullLock()
+
+    async def get_by_id(self, id):
+        return self._data.get(id)
+
+    async def upsert(self, payload):
+        self._data.update(payload)
+
+    async def delete(self, ids):
+        for i in ids:
+            self._data.pop(i, None)
+
+    async def get_all_items(self):
+        return {k: dict(v) for k, v in self._data.items()}
+
+    async def index_done_callback(self):
+        pass
 
 
 class StubGraph:
@@ -95,6 +123,9 @@ class StubGraph:
     async def upsert_edge(self, src, tgt, edge_data):
         self.edges[self._key(src, tgt)] = dict(edge_data)
 
+    async def index_done_callback(self):
+        pass
+
 
 class StubVDB:
     """Captures every payload the merge path would embed/export."""
@@ -105,21 +136,21 @@ class StubVDB:
     async def upsert(self, payload):
         self.records.update({k: dict(v) for k, v in payload.items()})
 
+    async def index_done_callback(self):
+        pass
+
     async def delete(self, ids):
         for record_id in ids:
             self.records.pop(record_id, None)
 
 
-def make_config(llm):
+def make_config():
     return {
-        "llm_model_func": llm,
+        "llm_model_func": None,  # summary compression never uses an LLM
         "tokenizer": StubTokenizer(),
         "summary_context_size": 200,
         "summary_max_tokens": 50,
-        "summary_length_recommended": 30,
         "raw_tail_size": RAW_TAIL_SIZE,
-        "force_llm_summary_on_merge": RAW_TAIL_SIZE,
-        "addon_params": {},
         "source_ids_limit_method": SOURCE_IDS_LIMIT_METHOD_KEEP,
         "max_source_ids_per_entity": 100,
         "max_source_ids_per_relation": 100,
@@ -128,9 +159,11 @@ def make_config(llm):
 
 
 async def build_summarized_state():
-    """Run N real merges for one entity and one relationship, forcing a summary."""
-    llm = StubLLM()
-    config = make_config(llm)
+    """Run N real merges for one entity and one relationship (forcing them
+    pending), then submit an agent-written summary for each via submit_summary
+    so storage genuinely contains a SUMMARY_MARKER segment."""
+    pending = StubPendingKV()
+    config = make_config()
     graph = StubGraph()
     entity_vdb = StubVDB()
     relationships_vdb = StubVDB()
@@ -152,6 +185,7 @@ async def build_summarized_state():
             entity_vdb,
             config,
             pipeline_status=pipeline_status,
+            pending_summaries_storage=pending,
         )
         await _merge_edges_then_upsert(
             "ACME_CORP",
@@ -171,17 +205,58 @@ async def build_summarized_state():
             entity_vdb,
             config,
             pipeline_status=pipeline_status,
+            pending_summaries_storage=pending,
         )
-    return graph, entity_vdb, relationships_vdb, pipeline_status, llm
+
+    storage_instances = {
+        "graph": graph,
+        "entities_vdb": entity_vdb,
+        "relationships_vdb": relationships_vdb,
+        "pending_summaries": pending,
+    }
+
+    list_result = await list_pending_summaries(storage_instances, config, limit=50)
+
+    entity_record = await pending.get_by_id("ACME_CORP")
+    entity_submit_result = await submit_summary(
+        storage_instances,
+        config,
+        name="ACME_CORP",
+        kind="entity",
+        summary_text="Agent-written rolling summary of ACME.",
+        expected_description_count=entity_record["description_count"],
+    )
+    edge_key = make_relation_chunk_key("ACME_CORP", "TIM_APPLE")
+    edge_record = await pending.get_by_id(edge_key)
+    relation_submit_result = await submit_summary(
+        storage_instances,
+        config,
+        name="ACME_CORP~TIM_APPLE",
+        kind="relation",
+        summary_text="Agent-written rolling summary of the relation.",
+        expected_description_count=edge_record["description_count"],
+        src="ACME_CORP",
+        tgt="TIM_APPLE",
+    )
+    return graph, entity_vdb, relationships_vdb, pipeline_status, list_result, entity_submit_result, relation_submit_result
 
 
 async def main() -> None:
-    graph, entity_vdb, relationships_vdb, pipeline_status, llm = await build_summarized_state()
+    (
+        graph,
+        entity_vdb,
+        relationships_vdb,
+        pipeline_status,
+        list_result,
+        entity_submit_result,
+        relation_submit_result,
+    ) = await build_summarized_state()
     node = graph.nodes["ACME_CORP"]
     edge = graph.edges[("ACME_CORP", "TIM_APPLE")]
 
-    print("\n[1] Storage keeps the marker (precondition: summary actually happened)")
-    check(llm.calls > 0, "merges forced at least one LLM summarization")
+    print("\n[1] Storage keeps the marker (precondition: an agent summary was actually submitted)")
+    check(entity_submit_result["status"] == "success", "entity submit_summary succeeded")
+    check(relation_submit_result["status"] == "success", "relation submit_summary succeeded")
     check(SUMMARY_MARKER in node.get("description", ""), "graph node description keeps the marker")
     check(SUMMARY_MARKER in edge.get("description", ""), "graph edge description keeps the marker")
     check(bool(pipeline_status.get("summary_events")), "summary_events still reported")
@@ -238,6 +313,11 @@ async def main() -> None:
     }
     payload = _vector_payload(hostile, "relationships", "ws")
     check(not contains_marker(payload), "Qdrant payload clean even for marker-bearing record")
+
+    print("\n[6] list_pending_summaries / submit_summary tool outputs are clean")
+    check(not contains_marker(list_result), "list_pending_summaries output carries no marker")
+    check(not contains_marker(entity_submit_result), "submit_summary (entity) output carries no marker")
+    check(not contains_marker(relation_submit_result), "submit_summary (relation) output carries no marker")
 
     print()
     if FAILURES:
