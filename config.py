@@ -47,16 +47,14 @@ VALID_SOURCE_IDS_LIMIT_METHODS = {
 # QUERY DEFAULTS (used by query.py)
 # ==========================================================================
 DEFAULT_HISTORY_TURNS = int(os.getenv("GRAPHRAG_HISTORY_TURNS", "3"))
-DEFAULT_SUMMARY_LANGUAGE = os.getenv("GRAPHRAG_SUMMARY_LANGUAGE", "English")
 
 # ==========================================================================
 # SUMMARY DEFAULTS (used by summary.py, merge.py)
+# Preciso never calls an LLM to compress descriptions — compression is always
+# deferred to the MCP-driving agent (preciso_mcp/tools/pending_summaries_tool.py).
 # ==========================================================================
 DEFAULT_SUMMARY_CONTEXT_TOKENS = int(os.getenv("GRAPHRAG_SUMMARY_CONTEXT_TOKENS", "8000"))
 DEFAULT_SUMMARY_MAX_TOKENS = int(os.getenv("GRAPHRAG_SUMMARY_MAX_TOKENS", "1024"))
-DEFAULT_SUMMARY_LENGTH_RECOMMENDED = int(
-    os.getenv("GRAPHRAG_SUMMARY_LENGTH_RECOMMENDED", "256")
-)
 # Two-zone description merge (core/summary.py): descriptions are stored as ONE
 # marker-tagged rolling summary of old mentions + a verbatim tail of the most recent
 # raw_tail_size descriptions. Compression fires only when the tail exceeds this count
@@ -91,17 +89,6 @@ DEFAULT_RAW_TAIL_SIZE = int(
 # Adding a new export/output surface? Strip there too, and extend the guard test
 # in test/marker_leak_manual.py (and tests/test_marker_leak.py).
 SUMMARY_MARKER = "<<SUM>>"
-
-# Description-compression strategy (core/summary.py, core/merge.py):
-#   "llm"      — compress via llm_model_func.
-#   "agent"    (default) — never call an LLM; when compression is needed, defer: keep
-#                everything verbatim, flag the entity/relation "pending", and
-#                let the MCP-driving agent read/write the summary via the
-#                list_pending_summaries / submit_summary tools.
-#   "verbatim" — never call an LLM and never queue pending work; identical to
-#                today's no-LLM-configured fallback (reason "summary_required").
-DEFAULT_SUMMARY_MODE = os.getenv("GRAPHRAG_SUMMARY_MODE", "agent").strip().lower()
-VALID_SUMMARY_MODES = {"llm", "agent", "verbatim"}
 
 # ============================================================================
 # EMBEDDING DEFAULTS
@@ -178,17 +165,10 @@ _rag_persona_env = os.getenv("GRAPHRAG_RAG_PERSONA", "neutral")
 DEFAULT_RAG_PERSONA = _RAG_PERSONAS.get(_rag_persona_env.strip().lower(), _rag_persona_env)
 
 # ============================================================================
-# LLM PROMPTS (used by summary.py, query.py)
-# Templates sent to LLM functions for summarization and response generation
+# LLM PROMPTS (used by query.py)
+# Templates sent to LLM functions for response generation
 # ============================================================================
 PROMPTS = {
-    "summarize_entity_descriptions": (
-        # Used by summary.py → _summarize_descriptions()
-        # Combines multiple entity/relationship descriptions into one concise summary
-        "Summarize the following {description_type} information for "
-        "{description_name} in {language}. Keep the most important facts and "
-        "target about {summary_length} tokens.\n{description_list}"
-    ),
     "rag_response": (
         # Used by query.py → kg_query()
         # Final prompt to generate response from knowledge graph context
@@ -394,15 +374,14 @@ def build_global_config(
         
         # ====================================================================
         # SUMMARY & DESCRIPTION SETTINGS (used by summary.py, merge.py)
-        # Controls how entity/relationship descriptions are merged
+        # Controls how entity/relationship descriptions are merged. Compression
+        # itself is always deferred to the MCP-driving agent — see SUMMARY_MARKER
+        # comment above and preciso_mcp/tools/pending_summaries_tool.py.
         # ====================================================================
-        "summary_context_size": DEFAULT_SUMMARY_CONTEXT_TOKENS,     # Max tokens to show LLM for summarization
-        "summary_max_tokens": DEFAULT_SUMMARY_MAX_TOKENS,           # Max tokens in final summary
-        "summary_length_recommended": DEFAULT_SUMMARY_LENGTH_RECOMMENDED,  # Target summary length
+        "summary_context_size": DEFAULT_SUMMARY_CONTEXT_TOKENS,     # Field size (tokens) that triggers compression
+        "summary_max_tokens": DEFAULT_SUMMARY_MAX_TOKENS,           # Max tokens in an agent-submitted summary
         "raw_tail_size": DEFAULT_RAW_TAIL_SIZE,                     # Verbatim recent descriptions kept outside the rolling summary
-        "force_llm_summary_on_merge": DEFAULT_RAW_TAIL_SIZE,        # Legacy alias of raw_tail_size (old count-based collapse policy removed)
-        "summary_mode": DEFAULT_SUMMARY_MODE,                       # "llm" | "agent" | "verbatim" — see SUMMARY_MARKER comment above
-        
+
         # ====================================================================
         # TOKEN LIMITS (used by utils.py, merge.py, query.py)
         # Prevents text from exceeding API token limits
@@ -444,9 +423,8 @@ def build_global_config(
         "min_rerank_score": 0.0,                         # Min score to include in results
         
         # ====================================================================
-        # LANGUAGE & PROMPTS (used by summary.py, query.py)
+        # PROMPTS (used by query.py)
         # ====================================================================
-        "addon_params": {"language": DEFAULT_SUMMARY_LANGUAGE},  # Language for LLM summaries
         "system_prompt_template": PROMPTS["rag_response"],       # Default system prompt for queries
     }
     if extra:
