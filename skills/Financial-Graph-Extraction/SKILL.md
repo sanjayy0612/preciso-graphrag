@@ -270,6 +270,10 @@ When processing financial documents, prioritize connections analysts actually qu
    - Output path matches the current source file name
 9. WRITE to extractions/{filename}_extracted.json
 10. CALL ingest_from_file MCP tool with the output path
+11. CALL list_pending_summaries() and resolve any flagged entities/relationships
+    via submit_summary(...) before finishing — Preciso never compresses
+    descriptions itself, so this step is the only way descriptions
+    exceeding raw_tail_size ever get summarized
 ```
 
 ---
@@ -371,6 +375,7 @@ Proxy Statement          → PERSON, EMPLOYS, compensation
 
 - Run `ingest_from_file("extractions/{filename}_extracted.json")` via MCP
 - If ingestion fails but extraction file exists, use `reingest_from_file(...)` — no re-extraction needed
+- Call `list_pending_summaries()`. Preciso never compresses descriptions with an LLM — if any entity/relationship is flagged (its raw description history exceeded `raw_tail_size`), write a concise summary of `prior_summary` + `old_descriptions` and call `submit_summary(...)` for each one before considering the job done
 - Sample queries to verify the graph:
   - `"What was Apple's revenue in FY2024?"`
   - `"Who are Apple's top executives and their compensation?"`
