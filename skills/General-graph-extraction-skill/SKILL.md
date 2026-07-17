@@ -314,6 +314,10 @@ If an extracted entity or relationship is unlikely to help answer one of those q
    - Output path matches the current source file name
 9. WRITE to extractions/{filename}_extracted.json
 10. CALL ingest_from_file MCP tool
+11. CALL list_pending_summaries() and resolve any flagged entities/relationships
+    via submit_summary(...) before finishing — Preciso never compresses
+    descriptions itself, so this step is the only way descriptions
+    exceeding raw_tail_size ever get summarized
 ```
 
 ---
@@ -421,6 +425,7 @@ If an extracted entity or relationship is unlikely to help answer one of those q
 
 - Run `ingest_from_file("extractions/{filename}_extracted.json")` via MCP
 - If ingestion fails, use `reingest_from_file(...)` to replay without re-extracting
+- Call `list_pending_summaries()`. Preciso never compresses descriptions with an LLM — if any entity/relationship is flagged (its raw description history exceeded `raw_tail_size`), write a concise summary of `prior_summary` + `old_descriptions` and call `submit_summary(...)` for each one before considering the job done
 - Sample queries after ingestion:
   - `"What does OrderService depend on?"`
   - `"Which tables does the Payments team write to?"`
