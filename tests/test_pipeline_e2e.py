@@ -7,7 +7,7 @@ import copy
 import logging
 
 from config import GRAPH_FIELD_SEP
-from core.query import _find_related_text_unit_from_entities
+from core.query import _find_related_text_unit_from_entities, _find_related_text_unit_from_relations
 from core.storage.base import QueryParam
 from core.utils import logger as graphrag_logger
 from ingest.pipeline import ingest_extracted_json
@@ -81,11 +81,15 @@ async def test_reingest_same_payload_is_idempotent(storage_stack):
     payload = make_payload()
     first = await ingest_extracted_json(payload, storage_instances, global_config)
     node_before = dict(await storage_instances["graph"].get_node("APPLE"))
+    edge_before = dict(await storage_instances["graph"].get_edge("TIM_COOK", "APPLE"))
     second = await ingest_extracted_json(copy.deepcopy(payload), storage_instances, global_config)
     node_after = dict(await storage_instances["graph"].get_node("APPLE"))
+    edge_after = dict(await storage_instances["graph"].get_edge("TIM_COOK", "APPLE"))
     assert first["status"] == second["status"] == "success"
     assert node_after["description"] == node_before["description"]
     assert node_after["source_id"] == node_before["source_id"]
+    assert edge_after["weight"] == edge_before["weight"]
+    assert edge_after["source_id"] == edge_before["source_id"]
 
 
 async def test_invalid_entity_reported_as_partial_success(storage_stack):
@@ -277,3 +281,129 @@ async def test_source_id_can_reference_a_chunk_from_an_earlier_ingest(storage_st
 
     assert result["status"] == "success"
     assert result["warnings"] == []
+
+
+async def test_source_id_expands_mixed_split_and_unsplit_citations(storage_stack):
+    storage_instances, global_config, _ = storage_stack
+    result = await ingest_extracted_json(
+        {
+            "document_id": "doc_mixed_source_ids",
+            "chunks": [
+                {"chunk_id": "long", "content": "Long evidence. " * 80},
+                {"chunk_id": "short", "content": "Short evidence."},
+            ],
+            "entities": [
+                {
+                    "entity_name": "MIXED",
+                    "entity_type": "ORG",
+                    "description": "An entity supported by both chunks.",
+                    "source_id": f"long{GRAPH_FIELD_SEP}short",
+                }
+            ],
+            "relationships": [],
+        },
+        storage_instances,
+        global_config,
+    )
+
+    assert result["warnings"] == []
+    node = await storage_instances["graph"].get_node("MIXED")
+    source_ids = node["source_id"].split(GRAPH_FIELD_SEP)
+    assert source_ids[-1] == "doc_mixed_source_ids::short"
+    assert len(source_ids) == result["chunks_ingested"]
+    assert all(
+        chunk is not None
+        for chunk in await storage_instances["text_chunks"].get_by_ids(source_ids)
+    )
+
+
+async def test_strict_source_ids_rejects_dangling_relationship_only(storage_stack, monkeypatch):
+    storage_instances, global_config, _ = storage_stack
+    monkeypatch.setenv("GRAPHRAG_STRICT_SOURCE_IDS", " TRUE ")
+    result = await ingest_extracted_json(
+        {
+            "document_id": "doc_strict_relationship",
+            "chunks": [{"chunk_id": "chunk-1", "content": "Entity evidence."}],
+            "entities": [
+                {
+                    "entity_name": "ALPHA",
+                    "entity_type": "ORG",
+                    "description": "Alpha.",
+                    "source_id": "chunk-1",
+                },
+                {
+                    "entity_name": "BETA",
+                    "entity_type": "ORG",
+                    "description": "Beta.",
+                    "source_id": "chunk-1",
+                },
+            ],
+            "relationships": [
+                {
+                    "src_id": "ALPHA",
+                    "tgt_id": "BETA",
+                    "description": "Unsupported relationship.",
+                    "source_id": "chunk-99",
+                }
+            ],
+        },
+        storage_instances,
+        global_config,
+    )
+
+    assert result["status"] == "partial_success"
+    assert result["entities_merged"] == 2
+    assert result["relationships_merged"] == 0
+    assert any("relationship `ALPHA->BETA` has unresolvable source_id" in error for error in result["errors"])
+    assert await storage_instances["graph"].get_edge("ALPHA", "BETA") is None
+
+
+async def test_query_logs_and_excludes_dangling_relationship_evidence(storage_stack, caplog):
+    storage_instances, global_config, _ = storage_stack
+    result = await ingest_extracted_json(
+        {
+            "document_id": "doc_query_dangling_relationship",
+            "chunks": [{"chunk_id": "chunk-1", "content": "Entity evidence."}],
+            "entities": [
+                {
+                    "entity_name": "ALPHA",
+                    "entity_type": "ORG",
+                    "description": "Alpha.",
+                    "source_id": "chunk-1",
+                },
+                {
+                    "entity_name": "BETA",
+                    "entity_type": "ORG",
+                    "description": "Beta.",
+                    "source_id": "chunk-1",
+                },
+            ],
+            "relationships": [
+                {
+                    "src_id": "ALPHA",
+                    "tgt_id": "BETA",
+                    "description": "Unsupported relationship.",
+                    "source_id": "chunk-99",
+                }
+            ],
+        },
+        storage_instances,
+        global_config,
+    )
+    assert result["status"] == "success"
+    assert result["warnings"]
+
+    edge = await storage_instances["graph"].get_edge("ALPHA", "BETA")
+    graphrag_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING):
+            evidence = await _find_related_text_unit_from_relations(
+                [{"src_tgt": ("ALPHA", "BETA"), **edge}],
+                QueryParam(),
+                storage_instances["text_chunks"],
+            )
+    finally:
+        graphrag_logger.removeHandler(caplog.handler)
+
+    assert evidence == []
+    assert "Unresolvable relationship evidence chunk" in caplog.text

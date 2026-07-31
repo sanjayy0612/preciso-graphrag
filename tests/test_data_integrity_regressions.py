@@ -68,6 +68,35 @@ async def test_reingesting_identical_relationship_preserves_weight():
     assert graph.edges[("APPLE", "TIM_COOK")]["weight"] == 1.0
 
 
+async def test_new_relationship_evidence_increases_weight_once():
+    graph = StubGraph()
+    relationship_vdb = StubVDB()
+    for source_id, weight in (("chunk-1", 1.0), ("chunk-2", 2.0)):
+        await _merge_edges_then_upsert(
+            "TIM_COOK",
+            "APPLE",
+            [
+                {
+                    "description": f"Evidence from {source_id}.",
+                    "keywords": "leadership",
+                    "source_id": source_id,
+                    "file_path": "document.md",
+                    "weight": weight,
+                    "timestamp": 1,
+                }
+            ],
+            graph,
+            relationship_vdb,
+            StubVDB(),
+            make_merge_config(),
+            pipeline_status={},
+        )
+
+    edge = graph.edges[("APPLE", "TIM_COOK")]
+    assert edge["weight"] == 3.0
+    assert edge["source_id"].split(GRAPH_FIELD_SEP) == ["chunk-1", "chunk-2"]
+
+
 async def test_source_id_limits_count_each_cited_chunk():
     graph = StubGraph()
     source_id = f"chunk-1{GRAPH_FIELD_SEP}chunk-2"
@@ -157,12 +186,14 @@ async def test_file_ingest_forwards_pipeline_warnings(tmp_path, monkeypatch):
 async def test_reconciliation_forwards_pipeline_warnings(tmp_path, monkeypatch):
     extraction_path = tmp_path / "base.json"
     extraction_path.write_text(
-        json.dumps({"document_id": "doc", "entities": [], "relationships": [], "chunks": []}),
+        json.dumps({"document_id": "doc_part1", "entities": [], "relationships": [], "chunks": []}),
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
+    captured_payloads = []
 
     async def fake_ingest(*_args, **_kwargs):
+        captured_payloads.append(_kwargs["payload"])
         return {
             "status": "success",
             "entities_merged": 0,
@@ -176,3 +207,4 @@ async def test_reconciliation_forwards_pipeline_warnings(tmp_path, monkeypatch):
     result = await reconcile_tool.ingest_with_reconciliation([str(extraction_path)], {}, {})
 
     assert result["warnings"] == ["relationship `A->B` has unresolvable source_id(s): doc::chunk-99"]
+    assert captured_payloads[0]["document_id"] == "doc"
