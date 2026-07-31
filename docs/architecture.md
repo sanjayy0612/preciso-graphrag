@@ -125,6 +125,10 @@ Structured JSON output from the agent, containing:
 
 Agent also validates: every `source_id` in an entity must map to a real chunk; all relationship endpoints must be defined entities.
 
+The ingest pipeline re-checks the `source_id` rule rather than trusting the agent. A `source_id` matching no chunk — in the current payload or already in storage from an earlier ingest of the same document — is reported under `warnings` in the ingest result. Set `GRAPHRAG_STRICT_SOURCE_IDS=true` to reject those entities and relationships instead of ingesting them.
+
+Oversized chunks are split on ingest into `-p1`, `-p2`, ... parts (see `GRAPHRAG_CHUNK_CHAR_LIMIT`). A `source_id` citing the original chunk id is expanded to every part it became, so the evidence stays reachable at query time.
+
 ### MCP Ingestion
 The `ingest_from_file` tool:
 1. Validates extraction JSON structure.

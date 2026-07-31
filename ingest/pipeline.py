@@ -76,6 +76,10 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
 
         chunk_upserts = {}
         chunk_vdb_upserts = {}
+        # Raw chunk id (as cited by the agent's source_id) -> the keys actually written.
+        # An oversized chunk is stored as several `-pN` parts, so a citation to it has to
+        # expand to every part or the evidence link dangles.
+        chunk_id_map: dict[str, list[str]] = {}
         for idx, chunk in enumerate(chunks):
             if not isinstance(chunk, dict):
                 errors.append(f"chunk at index {idx} must be an object")
@@ -109,6 +113,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     "file_path": str(chunk.get("file_path", file_path)) or file_path,
                 }
                 chunk_upserts[part_id] = chunk_record
+                chunk_id_map.setdefault(raw_chunk_id, []).append(part_id)
                 chunk_vdb_upserts[compute_mdhash_id(part_id, prefix="vchunk-")] = {
                     "content": part_content,
                     "full_doc_id": document_id,
@@ -123,24 +128,83 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                 entity_name=document_id,
             )
 
+        # Chunk ids the pipeline could not account for are not necessarily wrong: a
+        # follow-up payload may cite chunks written by an earlier ingest of the same
+        # document. Collect them first, then confirm against storage in one batch.
+        warnings: list[str] = []
+        strict_source_ids = os.getenv("GRAPHRAG_STRICT_SOURCE_IDS", "false").lower() == "true"
+        candidate_unresolved: dict[str, list[str]] = defaultdict(list)
+
         known_entities: set[str] = set()
-        grouped_nodes: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        pending_nodes: list[tuple[str, list[dict[str, Any]], list[str]]] = []
         for entity in entities:
             ok, reason = validate_entity(entity)
             if not ok:
                 errors.append(reason)
                 continue
-            entity_name, node_list = agent_json_to_nodes_data(entity, timestamp, document_id)
-            grouped_nodes[entity_name].extend(node_list)
+            entity_name, node_list, unresolved = agent_json_to_nodes_data(
+                entity, timestamp, document_id, chunk_id_map
+            )
+            pending_nodes.append((entity_name, node_list, unresolved))
             known_entities.add(entity_name)
+            for raw_id in unresolved:
+                candidate_unresolved[raw_id].append(f"entity `{entity_name}`")
 
-        grouped_edges: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        pending_edges: list[tuple[str, str, list[dict[str, Any]], list[str]]] = []
         for rel in relationships:
             ok, reason = validate_relationship(rel, known_entities)
             if not ok:
                 errors.append(reason)
                 continue
-            src_id, tgt_id, edge_list = agent_json_to_edges_data(rel, timestamp, document_id)
+            src_id, tgt_id, edge_list, unresolved = agent_json_to_edges_data(
+                rel, timestamp, document_id, chunk_id_map
+            )
+            pending_edges.append((src_id, tgt_id, edge_list, unresolved))
+            for raw_id in unresolved:
+                candidate_unresolved[raw_id].append(f"relationship `{src_id}->{tgt_id}`")
+
+        dangling_ids: set[str] = set()
+        if candidate_unresolved:
+            missing = await text_chunks.filter_keys(
+                {f"{document_id}::{raw_id}" for raw_id in candidate_unresolved}
+            )
+            dangling_ids = {
+                raw_id for raw_id in candidate_unresolved if f"{document_id}::{raw_id}" in missing
+            }
+
+        for raw_id in sorted(dangling_ids):
+            citers = candidate_unresolved[raw_id]
+            message = (
+                f"source_id `{raw_id}` does not match any chunk in this document "
+                f"(cited by {', '.join(sorted(set(citers)))})"
+            )
+            if strict_source_ids:
+                errors.append(message)
+            else:
+                warnings.append(message)
+                logger.warning("ingest %s: %s", document_id, message)
+
+        def _has_dangling(unresolved: list[str]) -> bool:
+            return any(raw_id in dangling_ids for raw_id in unresolved)
+
+        grouped_nodes: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for entity_name, node_list, unresolved in pending_nodes:
+            if strict_source_ids and _has_dangling(unresolved):
+                continue
+            grouped_nodes[entity_name].extend(node_list)
+        if strict_source_ids:
+            # An entity survives if any of its occurrences cited a resolvable chunk, so
+            # derive the surviving names from what actually made it through.
+            known_entities = set(grouped_nodes)
+
+        grouped_edges: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+        for src_id, tgt_id, edge_list, unresolved in pending_edges:
+            if strict_source_ids and (
+                _has_dangling(unresolved)
+                or src_id not in known_entities
+                or tgt_id not in known_entities
+            ):
+                continue
             grouped_edges[(src_id, tgt_id)].extend(edge_list)
 
         pipeline_status = {"summary_events": []}
@@ -204,6 +268,8 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             "relationships_merged": len(merged_edges),
             "errors": errors,
         }
+        if warnings:
+            result["warnings"] = warnings
         if pipeline_status.get("summary_events"):
             result["summary_events"] = pipeline_status["summary_events"]
         return result

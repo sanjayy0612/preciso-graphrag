@@ -11,8 +11,31 @@ import pytest
 
 from config import _fallback_embed, build_global_config
 from core.bootstrap import build_storage_instances, initialize_storage_instances
+from core.storage import shared_storage
 from core.storage.base import EmbeddingFunc
 from core.utils import BasicTokenizer
+
+
+@pytest.fixture(autouse=True)
+def isolate_shared_storage():
+    """Give every test a genuinely empty storage namespace.
+
+    core/storage/shared_storage.py holds JsonKVStorage data in process-global dicts
+    keyed by namespace (plus workspace) but *not* by working_dir, and
+    try_initialize_namespace() only loads from disk the first time a namespace is seen
+    in a process. Two tests using different tmp_path dirs therefore share the same
+    in-memory KV data, which leaks through core/merge.py (it reads prior chunk_ids from
+    entity_chunks_storage) into the next test's merged source_id values.
+    """
+    for state in (
+        shared_storage._namespace_data,
+        shared_storage._namespace_locks,
+        shared_storage._namespace_update_flags,
+        shared_storage._namespace_init_flags,
+        shared_storage._keyed_locks,
+    ):
+        state.clear()
+    yield
 
 
 @pytest.fixture

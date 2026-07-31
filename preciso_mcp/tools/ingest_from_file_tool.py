@@ -94,6 +94,8 @@ async def _ingest_file(file_path: str, storage_instances: dict, global_config: d
         response["summary_events"] = result["summary_events"]
     if result.get("errors"):
         response["errors"] = result["errors"]
+    if result.get("warnings"):
+        response["warnings"] = result["warnings"]
 
     if result.get("status") == "partial_success":
         response["status"] = "validation_failed"
