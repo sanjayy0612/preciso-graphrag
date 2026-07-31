@@ -118,6 +118,17 @@ def split_string_by_multi_markers(content: str, markers: list[str]) -> list[str]
     return [item.strip() for item in results if item.strip()]
 
 
+def split_source_ids(source_ids: Iterable[str] | None) -> list[str]:
+    """Flatten SEP-joined source-id fields into individual chunk IDs."""
+    if not source_ids:
+        return []
+    return [
+        chunk_id
+        for source_id in source_ids
+        for chunk_id in split_string_by_multi_markers(source_id, [GRAPH_FIELD_SEP])
+    ]
+
+
 def truncate_list_by_token_size(
     list_data: list[Any],
     key: Callable[[Any], str],
@@ -510,6 +521,14 @@ def apply_source_ids_limit(
 
 def make_relation_chunk_key(src: str, tgt: str) -> str:
     return GRAPH_FIELD_SEP.join(sorted((src, tgt)))
+
+
+def make_relation_vdb_id(src: str, tgt: str) -> str:
+    """Create an unambiguous, order-independent vector ID for an undirected edge."""
+    return compute_mdhash_id(
+        json.dumps(sorted((src, tgt)), ensure_ascii=False, separators=(",", ":")),
+        prefix="rel-",
+    )
 
 
 def convert_to_user_format(

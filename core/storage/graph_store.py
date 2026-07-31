@@ -37,6 +37,7 @@ class NetworkXStorage(BaseGraphStorage):
 
     def __post_init__(self):
         working_dir = self.global_config["working_dir"]
+        self._working_dir = working_dir
         workspace_dir = os.path.join(working_dir, self.workspace) if self.workspace else working_dir
         self.workspace = self.workspace or ""
         os.makedirs(workspace_dir, exist_ok=True)
@@ -46,8 +47,12 @@ class NetworkXStorage(BaseGraphStorage):
         self._graph = self.load_nx_graph(self._graphml_xml_file) or nx.Graph()
 
     async def initialize(self):
-        self.storage_updated = await get_update_flag(self.namespace, workspace=self.workspace)
-        self._storage_lock = get_namespace_lock(self.namespace, workspace=self.workspace)
+        self.storage_updated = await get_update_flag(
+            self.namespace, workspace=self.workspace, working_dir=self._working_dir
+        )
+        self._storage_lock = get_namespace_lock(
+            self.namespace, workspace=self.workspace, working_dir=self._working_dir
+        )
 
     async def _get_graph(self):
         async with self._storage_lock:
@@ -197,7 +202,9 @@ class NetworkXStorage(BaseGraphStorage):
     async def index_done_callback(self) -> None:
         async with self._storage_lock:
             self.write_nx_graph(self._graph, self._graphml_xml_file, self.workspace)
-            await set_all_update_flags(self.namespace, workspace=self.workspace)
+            await set_all_update_flags(
+                self.namespace, workspace=self.workspace, working_dir=self._working_dir
+            )
             self.storage_updated.value = False
 
     async def drop(self) -> dict[str, str]:

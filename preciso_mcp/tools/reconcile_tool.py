@@ -126,7 +126,7 @@ async def ingest_with_reconciliation(
 
     # Step 4: Reconcile base extraction with patches
     try:
-        unified = reconcile_extractions(first, patch_list)
+        unified = reconcile_extractions(first, patch_list, document_id=document_id)
     except Exception as e:
         logger.exception("ingest_with_reconciliation: reconcile_extractions failed (document_id=%s)", document_id)
         return {
@@ -198,4 +198,5 @@ async def ingest_with_reconciliation(
         "chunks_stored": ingest_result.get("chunks_ingested", 0),
         "reconciliation_stats": stats,
         "errors": ingest_result.get("errors", []),
+        "warnings": ingest_result.get("warnings", []),
     }

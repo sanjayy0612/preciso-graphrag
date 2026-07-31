@@ -820,6 +820,8 @@ async def _find_related_text_unit_from_entities(
                     "frequency": chunk_occurrence_count.get(chunk_id, 1),
                     "order": i + 1,
                 }
+        else:
+            logger.warning("Unresolvable entity evidence chunk `%s` was skipped during query", chunk_id)
     return result_chunks
 
 
@@ -964,4 +966,6 @@ async def _find_related_text_unit_from_relations(
                     "frequency": chunk_occurrence_count.get(chunk_id, 1),
                     "order": i + 1,
                 }
+        else:
+            logger.warning("Unresolvable relationship evidence chunk `%s` was skipped during query", chunk_id)
     return result_chunks

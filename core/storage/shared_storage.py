@@ -22,39 +22,62 @@ def initialize_share_data() -> None:
     return None
 
 
-def get_final_namespace(namespace: str, workspace: str | None = None) -> str:
+def get_final_namespace(
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
+) -> str:
+    working_dir = working_dir or ""
     workspace = workspace or ""
-    return f"{workspace}:{namespace}" if workspace else namespace
+    return f"{working_dir}:{workspace}:{namespace}"
 
 
-def get_namespace_lock(namespace: str, workspace: str | None = None) -> asyncio.Lock:
-    final_namespace = get_final_namespace(namespace, workspace)
+def get_namespace_lock(
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
+) -> asyncio.Lock:
+    final_namespace = get_final_namespace(namespace, workspace, working_dir)
     if final_namespace not in _namespace_locks:
         _namespace_locks[final_namespace] = asyncio.Lock()
     return _namespace_locks[final_namespace]
 
 
-async def get_update_flag(namespace: str, workspace: str | None = None) -> UpdateFlag:
-    final_namespace = get_final_namespace(namespace, workspace)
+async def get_update_flag(
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
+) -> UpdateFlag:
+    final_namespace = get_final_namespace(namespace, workspace, working_dir)
     if final_namespace not in _namespace_update_flags:
         _namespace_update_flags[final_namespace] = UpdateFlag()
     return _namespace_update_flags[final_namespace]
 
 
-async def set_all_update_flags(namespace: str, workspace: str | None = None) -> None:
-    flag = await get_update_flag(namespace, workspace)
+async def set_all_update_flags(
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
+) -> None:
+    flag = await get_update_flag(namespace, workspace, working_dir)
     flag.value = True
 
 
-async def clear_all_update_flags(namespace: str, workspace: str | None = None) -> None:
-    flag = await get_update_flag(namespace, workspace)
+async def clear_all_update_flags(
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
+) -> None:
+    flag = await get_update_flag(namespace, workspace, working_dir)
     flag.value = False
 
 
 async def try_initialize_namespace(
-    namespace: str, workspace: str | None = None
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
 ) -> bool:
-    final_namespace = get_final_namespace(namespace, workspace)
+    final_namespace = get_final_namespace(namespace, workspace, working_dir)
     if final_namespace not in _namespace_init_flags:
         _namespace_init_flags[final_namespace] = True
         return True
@@ -62,9 +85,11 @@ async def try_initialize_namespace(
 
 
 async def get_namespace_data(
-    namespace: str, workspace: str | None = None
+    namespace: str,
+    workspace: str | None = None,
+    working_dir: str | None = None,
 ) -> dict[str, Any]:
-    final_namespace = get_final_namespace(namespace, workspace)
+    final_namespace = get_final_namespace(namespace, workspace, working_dir)
     if final_namespace not in _namespace_data:
         _namespace_data[final_namespace] = {}
     return _namespace_data[final_namespace]

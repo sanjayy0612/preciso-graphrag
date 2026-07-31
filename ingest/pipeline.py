@@ -5,11 +5,16 @@ import time
 from collections import defaultdict
 from typing import Any
 
+from config import GRAPH_FIELD_SEP
 from core.merge import _merge_edges_then_upsert, _merge_nodes_then_upsert
 from core.runtime_status import update_artifact_manifest
 from core.storage.shared_storage import get_storage_keyed_lock
 from core.utils import compute_mdhash_id, logger, safe_vdb_operation_with_exception
-from ingest.transformer import agent_json_to_edges_data, agent_json_to_nodes_data
+from ingest.transformer import (
+    agent_json_to_edges_data,
+    agent_json_to_nodes_data,
+    namespace_source_id,
+)
 from ingest.validator import validate_entity, validate_relationship
 
 
@@ -36,6 +41,8 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
         relation_chunks = storage_instances.get("relation_chunks")
         pending_summaries = storage_instances.get("pending_summaries")
         errors: list[str] = []
+        warnings: list[str] = []
+        strict_source_ids = os.getenv("GRAPHRAG_STRICT_SOURCE_IDS", "false").strip().lower() == "true"
 
         max_chunk_tokens = global_config.get("embedding_token_limit")
         if max_chunk_tokens is None:
@@ -76,6 +83,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
 
         chunk_upserts = {}
         chunk_vdb_upserts = {}
+        chunk_part_ids: dict[str, list[str]] = {}
         for idx, chunk in enumerate(chunks):
             if not isinstance(chunk, dict):
                 errors.append(f"chunk at index {idx} must be an object")
@@ -98,6 +106,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             base_order_index = int(chunk.get("chunk_order_index", idx))
             for part_index, part_content in enumerate(parts):
                 part_id = chunk_id if len(parts) == 1 else f"{chunk_id}-p{part_index + 1}"
+                chunk_part_ids.setdefault(raw_chunk_id, []).append(part_id)
                 part_order_index = (
                     base_order_index if len(parts) == 1 else base_order_index * 1000 + part_index
                 )
@@ -123,24 +132,85 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                 entity_name=document_id,
             )
 
+        def normalize_source_id(record: dict) -> dict:
+            normalized = dict(record)
+            normalized["source_id"] = namespace_source_id(
+                str(record.get("source_id", "")).strip(),
+                document_id,
+                chunk_part_ids,
+            )
+            return normalized
+
+        normalized_entities = [normalize_source_id(entity) if isinstance(entity, dict) else entity for entity in entities]
+        normalized_relationships = [
+            normalize_source_id(relationship) if isinstance(relationship, dict) else relationship
+            for relationship in relationships
+        ]
+        cited_chunk_ids = {
+            chunk_id
+            for record in [*normalized_entities, *normalized_relationships]
+            if isinstance(record, dict)
+            for chunk_id in str(record.get("source_id", "")).split(GRAPH_FIELD_SEP)
+            if chunk_id
+        }
+        unresolved_chunk_ids = await text_chunks.filter_keys(cited_chunk_ids)
+        resolvable_chunk_ids = cited_chunk_ids - unresolved_chunk_ids
+
+        def unresolved_source_ids(record: dict) -> list[str]:
+            return [
+                chunk_id
+                for chunk_id in str(record.get("source_id", "")).split(GRAPH_FIELD_SEP)
+                if chunk_id in unresolved_chunk_ids
+            ]
+
         known_entities: set[str] = set()
         grouped_nodes: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for entity in entities:
-            ok, reason = validate_entity(entity)
+        for entity in normalized_entities:
+            ok, reason = validate_entity(
+                entity,
+                resolvable_source_ids=resolvable_chunk_ids,
+                strict_source_ids=strict_source_ids,
+            )
             if not ok:
                 errors.append(reason)
                 continue
-            entity_name, node_list = agent_json_to_nodes_data(entity, timestamp, document_id)
+            dangling = unresolved_source_ids(entity)
+            if dangling:
+                warnings.append(
+                    f"entity `{entity['entity_name']}` has unresolvable source_id(s): {', '.join(dangling)}"
+                )
+            entity_name, node_list = agent_json_to_nodes_data(
+                entity,
+                timestamp,
+                document_id,
+                source_id_is_namespaced=True,
+            )
             grouped_nodes[entity_name].extend(node_list)
             known_entities.add(entity_name)
 
         grouped_edges: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-        for rel in relationships:
-            ok, reason = validate_relationship(rel, known_entities)
+        for rel in normalized_relationships:
+            ok, reason = validate_relationship(
+                rel,
+                known_entities,
+                resolvable_source_ids=resolvable_chunk_ids,
+                strict_source_ids=strict_source_ids,
+            )
             if not ok:
                 errors.append(reason)
                 continue
-            src_id, tgt_id, edge_list = agent_json_to_edges_data(rel, timestamp, document_id)
+            dangling = unresolved_source_ids(rel)
+            if dangling:
+                warnings.append(
+                    f"relationship `{rel.get('src_id') or rel.get('source_entity')}->{rel.get('tgt_id') or rel.get('target_entity')}` "
+                    f"has unresolvable source_id(s): {', '.join(dangling)}"
+                )
+            src_id, tgt_id, edge_list = agent_json_to_edges_data(
+                rel,
+                timestamp,
+                document_id,
+                source_id_is_namespaced=True,
+            )
             grouped_edges[(src_id, tgt_id)].extend(edge_list)
 
         pipeline_status = {"summary_events": []}
@@ -203,6 +273,7 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
             "entities_merged": len(merged_nodes),
             "relationships_merged": len(merged_edges),
             "errors": errors,
+            "warnings": warnings,
         }
         if pipeline_status.get("summary_events"):
             result["summary_events"] = pipeline_status["summary_events"]

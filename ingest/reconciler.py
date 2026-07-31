@@ -232,6 +232,8 @@ def merge_into_unified(
 def reconcile_extractions(
     base_extraction: dict,
     patch_list: list[dict],
+    *,
+    document_id: str | None = None,
 ) -> dict:
     """
     Main entry point. Called by ingest_with_reconciliation MCP tool.
@@ -241,5 +243,5 @@ def reconcile_extractions(
             2. Merge into a unified extraction (dedupe + stats)
     """
     patched = apply_patches(base_extraction, patch_list or [])
-    document_id = patched.get("document_id", "unknown")
-    return merge_into_unified([patched], document_id)
+    final_document_id = document_id or patched.get("document_id", "unknown")
+    return merge_into_unified([patched], final_document_id)

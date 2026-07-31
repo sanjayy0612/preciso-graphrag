@@ -17,6 +17,7 @@ from core.utils import (
     compute_mdhash_id,
     logger,
     make_relation_chunk_key,
+    make_relation_vdb_id,
     safe_vdb_operation_with_exception,
     strip_summary_marker,
 )
@@ -238,12 +239,15 @@ async def submit_summary(
                 relationships_vdb = storage_instances.get("relationships_vdb")
                 if relationships_vdb is not None:
                     sorted_src, sorted_tgt = sorted((src, tgt))
-                    rel_vdb_id = compute_mdhash_id(sorted_src + sorted_tgt, prefix="rel-")
-                    # Guard against a stale reverse-order entry from before sorted-id
-                    # normalization existed (mirrors core/merge.py's upsert path).
-                    rel_vdb_id_reverse = compute_mdhash_id(sorted_tgt + sorted_src, prefix="rel-")
+                    rel_vdb_id = make_relation_vdb_id(sorted_src, sorted_tgt)
+                    # Remove legacy concatenated IDs written before unambiguous
+                    # relation vector IDs were introduced.
+                    legacy_rel_vdb_ids = [
+                        compute_mdhash_id(sorted_src + sorted_tgt, prefix="rel-"),
+                        compute_mdhash_id(sorted_tgt + sorted_src, prefix="rel-"),
+                    ]
                     try:
-                        await relationships_vdb.delete([rel_vdb_id, rel_vdb_id_reverse])
+                        await relationships_vdb.delete([rel_vdb_id, *legacy_rel_vdb_ids])
                     except Exception:
                         pass
                     keywords = updated_edge.get("keywords", "")

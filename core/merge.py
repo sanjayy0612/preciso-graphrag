@@ -17,10 +17,12 @@ from core.utils import (
     apply_source_ids_limit,
     compute_mdhash_id,
     make_relation_chunk_key,
+    make_relation_vdb_id,
     merge_source_ids,
     performance_timing_log,
     safe_vdb_operation_with_exception,
     split_string_by_multi_markers,
+    split_source_ids,
     strip_summary_marker,
 )
 
@@ -95,12 +97,14 @@ async def _merge_nodes_then_upsert(
             existing_desc = (already_node.get("description") or "").strip()
             if existing_desc:
                 already_description.extend(existing_desc.split(GRAPH_FIELD_SEP))
-        new_source_ids = [dp["source_id"] for dp in nodes_data if dp.get("source_id")]
+        new_source_ids = split_source_ids(
+            dp["source_id"] for dp in nodes_data if dp.get("source_id")
+        )
         existing_full_source_ids = []
         if entity_chunks_storage is not None:
             stored_chunks = await entity_chunks_storage.get_by_id(entity_name)
             if stored_chunks and isinstance(stored_chunks, dict):
-                existing_full_source_ids = [chunk_id for chunk_id in stored_chunks.get("chunk_ids", []) if chunk_id]
+                existing_full_source_ids = split_source_ids(stored_chunks.get("chunk_ids", []))
         if not existing_full_source_ids:
             existing_full_source_ids = [chunk_id for chunk_id in already_source_ids if chunk_id]
         full_source_ids = merge_source_ids(existing_full_source_ids, new_source_ids)
@@ -122,8 +126,14 @@ async def _merge_nodes_then_upsert(
                 dp
                 for dp in nodes_data
                 if not dp.get("source_id")
-                or dp["source_id"] in allowed_source_ids
-                or dp["source_id"] in existing_full_source_ids
+                or any(
+                    chunk_id in allowed_source_ids
+                    for chunk_id in split_source_ids([dp["source_id"]])
+                )
+                or any(
+                    chunk_id in existing_full_source_ids
+                    for chunk_id in split_source_ids([dp["source_id"]])
+                )
             ]
         else:
             nodes_data = list(nodes_data)
@@ -291,15 +301,18 @@ async def _merge_edges_then_upsert(
                     already_keywords.extend(
                         split_string_by_multi_markers(already_edge["keywords"], [GRAPH_FIELD_SEP])
                     )
-        new_source_ids = [dp["source_id"] for dp in edges_data if dp.get("source_id")]
+        new_source_ids = split_source_ids(
+            dp["source_id"] for dp in edges_data if dp.get("source_id")
+        )
         storage_key = make_relation_chunk_key(src_id, tgt_id)
         existing_full_source_ids = []
         if relation_chunks_storage is not None:
             stored_chunks = await relation_chunks_storage.get_by_id(storage_key)
             if stored_chunks and isinstance(stored_chunks, dict):
-                existing_full_source_ids = [chunk_id for chunk_id in stored_chunks.get("chunk_ids", []) if chunk_id]
+                existing_full_source_ids = split_source_ids(stored_chunks.get("chunk_ids", []))
         if not existing_full_source_ids:
             existing_full_source_ids = [chunk_id for chunk_id in already_source_ids if chunk_id]
+        preexisting_source_ids = set(existing_full_source_ids)
         full_source_ids = merge_source_ids(existing_full_source_ids, new_source_ids)
         if relation_chunks_storage is not None and full_source_ids:
             await relation_chunks_storage.upsert(
@@ -320,8 +333,14 @@ async def _merge_edges_then_upsert(
                 dp
                 for dp in edges_data
                 if not dp.get("source_id")
-                or dp["source_id"] in allowed_source_ids
-                or dp["source_id"] in existing_full_source_ids
+                or any(
+                    chunk_id in allowed_source_ids
+                    for chunk_id in split_source_ids([dp["source_id"]])
+                )
+                or any(
+                    chunk_id in existing_full_source_ids
+                    for chunk_id in split_source_ids([dp["source_id"]])
+                )
             ]
         else:
             edges_data = list(edges_data)
@@ -332,7 +351,11 @@ async def _merge_edges_then_upsert(
         ):
             return dict(already_edge) if already_edge else None
         source_id = GRAPH_FIELD_SEP.join(source_ids)
-        weight = sum([dp["weight"] for dp in edges_data] + already_weights)
+        weight = sum(already_weights) + sum(
+            dp["weight"]
+            for dp in edges_data
+            if not set(split_source_ids([dp.get("source_id", "")])).issubset(preexisting_source_ids)
+        )
         all_keywords = set()
         for i, keyword_str in enumerate(already_keywords, start=1):
             if keyword_str:
@@ -470,7 +493,7 @@ async def _merge_edges_then_upsert(
                 if entity_chunks_storage is not None:
                     stored_chunks = await entity_chunks_storage.get_by_id(need_insert_id)
                     if stored_chunks and isinstance(stored_chunks, dict):
-                        existing_full_source_ids = [chunk_id for chunk_id in stored_chunks.get("chunk_ids", []) if chunk_id]
+                        existing_full_source_ids = split_source_ids(stored_chunks.get("chunk_ids", []))
                 if not existing_full_source_ids and existing_node.get("source_id"):
                     existing_full_source_ids = existing_node["source_id"].split(GRAPH_FIELD_SEP)
                 merged_full_source_ids = merge_source_ids(existing_full_source_ids, [chunk_id for chunk_id in source_ids if chunk_id])
@@ -535,10 +558,13 @@ async def _merge_edges_then_upsert(
         }
         sorted_src, sorted_tgt = sorted((src_id, tgt_id))
         if relationships_vdb is not None:
-            rel_vdb_id = compute_mdhash_id(sorted_src + sorted_tgt, prefix="rel-")
-            rel_vdb_id_reverse = compute_mdhash_id(sorted_tgt + sorted_src, prefix="rel-")
+            rel_vdb_id = make_relation_vdb_id(sorted_src, sorted_tgt)
+            legacy_rel_vdb_ids = [
+                compute_mdhash_id(sorted_src + sorted_tgt, prefix="rel-"),
+                compute_mdhash_id(sorted_tgt + sorted_src, prefix="rel-"),
+            ]
             try:
-                await relationships_vdb.delete([rel_vdb_id, rel_vdb_id_reverse])
+                await relationships_vdb.delete([rel_vdb_id, *legacy_rel_vdb_ids])
             except Exception:
                 pass
             rel_content = f"{keywords}\t{sorted_src}\n{sorted_tgt}\n{strip_summary_marker(description)}"

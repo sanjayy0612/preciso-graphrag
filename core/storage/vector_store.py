@@ -35,6 +35,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
             raise ValueError("cosine_better_than_threshold must be specified")
         self.cosine_better_than_threshold = cosine_threshold
         working_dir = self.global_config["working_dir"]
+        self._working_dir = working_dir
         workspace_dir = os.path.join(working_dir, self.workspace) if self.workspace else working_dir
         self.workspace = self.workspace or ""
         os.makedirs(workspace_dir, exist_ok=True)
@@ -66,8 +67,12 @@ class NanoVectorDBStorage(BaseVectorStorage):
             )
 
     async def initialize(self):
-        self.storage_updated = await get_update_flag(self.namespace, workspace=self.workspace)
-        self._storage_lock = get_namespace_lock(self.namespace, workspace=self.workspace)
+        self.storage_updated = await get_update_flag(
+            self.namespace, workspace=self.workspace, working_dir=self._working_dir
+        )
+        self._storage_lock = get_namespace_lock(
+            self.namespace, workspace=self.workspace, working_dir=self._working_dir
+        )
 
     async def _get_client(self):
         async with self._storage_lock:
@@ -157,7 +162,9 @@ class NanoVectorDBStorage(BaseVectorStorage):
         async with self._storage_lock:
             try:
                 self._client.save()
-                await set_all_update_flags(self.namespace, workspace=self.workspace)
+                await set_all_update_flags(
+                    self.namespace, workspace=self.workspace, working_dir=self._working_dir
+                )
                 self.storage_updated.value = False
                 return True
             except Exception as exc:
