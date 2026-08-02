@@ -57,7 +57,7 @@ Notes:
   it — re-fetch via `list_pending_summaries` and retry.
 - Submitting the same `summary_text` again when the field already reflects
   it is a no-op success (idempotent).
-- Re-ingesting the same document doesn't create duplicate pending records —
+- Replaying the identical extraction doesn't create duplicate pending records —
   the raw tail dedupes byte-for-byte, so nothing new crosses the threshold.
 - `kind="relation"` requires both `src` and `tgt` (the sorted pair is the
   storage key internally); `kind="entity"` requires `name`.

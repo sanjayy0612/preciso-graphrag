@@ -35,6 +35,23 @@ For example:
 cp your_document.txt to_be_extracted/
 ```
 
+## Important: verify your source documents before extraction
+
+Before running the agent prompt, review the source documents yourself. Confirm that they are factually correct, current, complete, and the exact versions you want represented in the graph. The agent can validate extraction structure, but it cannot guarantee that the source document itself is true.
+
+Starting extraction with flawed data can waste paid agent or language-model credits. Ingestion also generates chunk, entity, and relationship embeddings, which may consume paid embedding-provider credits. If the mistake reaches the graph, correcting it may require regenerating the extraction and rebuilding every graph artifact from the complete valid corpus.
+
+Before starting extraction:
+
+1. Remove drafts, duplicates, and superseded versions.
+2. Confirm that every remaining document is accurate, final, and belongs in the corpus.
+3. Preserve the validated source documents as reproducible inputs.
+4. Run the agent prompt only after you are satisfied with the source corpus.
+
+The agent's later extraction validation is a second structural check; it does not replace your review of the original data.
+
+If flawed source data has already entered the graph, follow the [full correction workflow](faq.md#how-do-i-correct-an-already-ingested-document).
+
 ## Step 3: Run this prompt in your agent
 
 Open your coding agent (Claude Code, Copilot, etc.) in this repo root and paste:
@@ -47,16 +64,21 @@ Read the files in to_be_extracted/.
 Choose the most appropriate extraction skill from the skills folder for each file.
 Extract entities, relationships, and chunks into extractions/{source_name}_extracted.json.
 Validate that every source_id maps to a real chunk_id and that all relationships reference defined entities.
-If the extraction looks clean, call ingest_from_file for each generated extraction file.
 If you find duplicate entities, orphaned relationships, or conflicts, use the reconciliation skill before ingestion.
+Before calling any ingestion tool, summarize the source files, document IDs,
+entity/relationship/chunk counts, validation results, and unresolved concerns.
+Explain that ingestion is additive and ask me to confirm that the source documents
+and extractions are correct, current, and ready to persist.
+Only after I confirm, call ingest_from_file for each generated extraction file.
 Then confirm the graph artifacts written to GRAPH_IS_HERE/ and summarize what was ingested.
 ```
 
 The agent will:
 1. Extract structured knowledge (entities, relationships) from your document.
-2. Validate the extraction.
-3. Ingest it into a local knowledge graph.
-4. Confirm success.
+2. Validate the extraction and present a pre-ingestion summary.
+3. Wait for your confirmation.
+4. Ingest it into a local knowledge graph.
+5. Confirm success.
 
 ## Step 4: Query your graph
 
@@ -129,7 +151,7 @@ Then call export_graph_to_neo4j with your Neo4j connection settings.
 Or call export_vectors_to_qdrant with your Qdrant connection settings.
 ```
 
-Remember: these are snapshots. If you re-ingest locally, export again when you want Neo4j or Qdrant refreshed.
+Remember: these are snapshots. After additive ingestion or a full rebuild, export again when you want Neo4j or Qdrant refreshed.
 
 ---
 

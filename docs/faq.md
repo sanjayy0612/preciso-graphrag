@@ -8,11 +8,32 @@ For the best graph quality, use `.md` and `.txt` inputs in `to_be_extracted/`. T
 
 PDFs are discouraged in the default workflow. They may still work with agents that have strong native PDF understanding, but that behavior comes from the external agent, not from Preciso itself.
 
+## Why must I verify source documents before extraction?
+
+Because source correctness is a human decision, and processing the wrong document can consume paid resources before the mistake is discovered.
+
+- Extraction may use paid agent or language-model credits.
+- Ingestion generates embeddings for chunks, entities, and relationships, which may use paid embedding-provider credits.
+- A structurally valid extraction can still faithfully represent incorrect, outdated, duplicated, or unfinished source material.
+- Once flawed evidence is ingested, it can affect shared entities, relationships, summaries, source links, and vectors. Correcting it may require a new extraction and a full graph rebuild from the complete valid corpus.
+
+Use this order:
+
+```text
+Human verifies source documents
+  → agent extracts
+  → agent validates extraction structure
+  → human approves extraction
+  → Preciso ingests and generates embeddings
+```
+
+The extraction validator checks structure and evidence references. It cannot certify that the original document is factually correct. Review the source corpus before starting the agent so you do not spend extraction or embedding credits on data that should never enter the graph.
+
 ## What does "local graph artifacts remain the source of truth" mean?
 
-It means `GRAPH_IS_HERE/` is the real copy of your graph.
+It means `GRAPH_IS_HERE/` is the operational copy of your generated graph, including its structure, evidence stores, embeddings, summaries, and metadata.
 
-If you export to Neo4j or Qdrant, those are downstream copies for sharing or scale. When you re-ingest locally, the local graph updates first. The export targets do not update by themselves; you re-export manually when you want them refreshed.
+If you export to Neo4j or Qdrant, those are downstream copies for sharing or scale. When you add new data or rebuild locally, the local graph changes first. The export targets do not update by themselves; you re-export manually when you want them refreshed.
 
 Think of it like this:
 - `GRAPH_IS_HERE/` = the original file
@@ -20,13 +41,44 @@ Think of it like this:
 
 If the original changes, the copies stay stale until you export again.
 
+Source documents and reviewed extraction files still matter: they are the reproducible inputs used to create a corrected graph. `GRAPH_IS_HERE/` cannot replace that rebuild corpus.
+
+## How do I correct an already-ingested document?
+
+Preciso does not support in-place document replacement or deletion. Ingestion is additive, so submitting a changed extraction to the existing graph can leave the earlier document's descriptions, relationships, weights, summaries, source links, chunks, or embeddings behind.
+
+Use a full rebuild:
+
+1. Keep the valid source documents and extractions for every unaffected document.
+2. Remove the flawed extraction from the rebuild inputs.
+3. Generate and review the corrected extraction.
+4. Stop the active Preciso, Codex, or Claude ingestion session so no graph state remains loaded in memory.
+5. Back up `GRAPH_IS_HERE/` if you may need to recover the current graph.
+6. Remove all generated graph and retrieval artifacts from `GRAPH_IS_HERE/`.
+7. Start a fresh session and confirm that Preciso reports an empty graph.
+8. Ingest the corrected extraction and every other valid extraction in the complete corpus.
+9. Confirm that entity merging, relationships, evidence links, embeddings, summaries, and the artifact manifest were recreated.
+10. Run representative queries or evaluations, then regenerate any Neo4j or Qdrant exports.
+
+For example, if Data 1 is corrected while Data 2 and Data 3 remain valid, the rebuild inputs must be:
+
+```text
+corrected-data-1.json
+data-2.json
+data-3.json
+```
+
+The extraction files may be ingested sequentially. “Complete corpus” means all three participate in the same clean rebuild.
+
+Do not use `reingest_from_file` for this workflow. That tool is only an identical recovery replay after an operational failure.
+
 ## Do I need Neo4j or Qdrant to use Preciso?
 
 No. Preciso works without them. The local graph in `GRAPH_IS_HERE/` is enough for ingesting and querying. Neo4j and Qdrant are optional if you want shared access, production deployment, or a separate search backend.
 
 ## How do I know if my export is out of date?
 
-Check `GRAPH_IS_HERE/artifact_manifest.json` for the latest ingestion metadata. If you re-ingested after the last export, your Neo4j or Qdrant copy is stale and should be refreshed.
+Check `GRAPH_IS_HERE/artifact_manifest.json` for the latest ingestion metadata. If you added data or performed a full rebuild after the last export, your Neo4j or Qdrant copy is stale and should be refreshed.
 
 ## MCP server not starting
 
@@ -133,7 +185,7 @@ Ingestion completes with "success" but `GRAPH_IS_HERE/` files are empty or conta
    tail -f preciso_mcp/server.log  # if logging is enabled
    ```
 
-5. **Manually re-ingest:**
+5. **Retry the identical extraction:**
    ```bash
    python3 test/ingest_manual.py extractions/your_file.json
    ```
@@ -195,7 +247,7 @@ query_graph_tool(query, mode="mix", top_k=5)
 If your extraction includes very long or generic chunks, try:
 - Break long documents into smaller chunks (max 256 tokens each).
 - Improve chunk text — remove boilerplate, focus on content.
-- Re-extract and re-ingest.
+- If the document has already been ingested, correct its extraction and perform a [full rebuild](#how-do-i-correct-an-already-ingested-document).
 
 **3. Embedding vector quality**
 Embeddings are only as good as the model. The default `mxbai-embed-large` is competent but not perfect. If you have higher quality embeddings:
@@ -316,25 +368,16 @@ This happens if you change embedding models (e.g., switch from 768-dim to 1024-d
 
 ### Fix
 
-1. **Clear the old vector artifacts:**
-   ```bash
-   rm GRAPH_IS_HERE/vdb_*.json*
-   ```
+Changing the embedding model requires a full rebuild because chunk, entity, and relationship vectors must use one consistent model and dimension.
 
-2. **Clear the graph (optional, if you want fresh):**
-   ```bash
-   rm GRAPH_IS_HERE/graph_graph.graphml
-   ```
+1. Stop the active Preciso session.
+2. Back up `GRAPH_IS_HERE/` if recovery may be needed.
+3. Remove all generated graph and retrieval artifacts, not only `vdb_*.json`.
+4. Start a fresh session with the new embedding configuration.
+5. Ingest every valid extraction in the complete corpus.
+6. Verify representative queries and regenerate downstream exports.
 
-3. **Reingest your extractions:**
-   ```bash
-   python3 test/ingest_manual.py extractions/your_file.json
-   ```
-
-Alternatively, before switching embedding models, commit `GRAPH_IS_HERE/` to git and keep a branch. You can always revert:
-```bash
-git checkout HEAD -- GRAPH_IS_HERE/
-```
+Follow the complete [correction and rebuild workflow](#how-do-i-correct-an-already-ingested-document). Removing only vector files or ingesting only one extraction can leave the graph incomplete or internally inconsistent.
 
 ---
 

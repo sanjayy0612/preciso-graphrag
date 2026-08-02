@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import html
 import json
 import logging
-import math
 import os
 import re
 import sys
 import time
-import zlib
 from dataclasses import dataclass
 from hashlib import md5
 from pathlib import Path
@@ -307,48 +304,6 @@ async def use_llm_func_with_cache(
     return remove_think_tags(response), int(time.time())
 
 
-def pick_by_weighted_polling(
-    entities_or_relations: list[dict],
-    max_related_chunks: int,
-    min_related_chunks: int = 1,
-) -> list[str]:
-    if not entities_or_relations:
-        return []
-    n = len(entities_or_relations)
-    if n == 1:
-        return entities_or_relations[0].get("sorted_chunks", [])[:max_related_chunks]
-    expected_counts = []
-    for i in range(n):
-        ratio = i / (n - 1) if n > 1 else 0
-        expected = max_related_chunks - ratio * (
-            max_related_chunks - min_related_chunks
-        )
-        expected_counts.append(int(round(expected)))
-    selected_chunks: list[str] = []
-    used_counts: list[int] = []
-    remaining = 0
-    for i, item in enumerate(entities_or_relations):
-        chunks = item.get("sorted_chunks", [])
-        actual = min(expected_counts[i], len(chunks))
-        selected_chunks.extend(chunks[:actual])
-        used_counts.append(actual)
-        rem = expected_counts[i] - actual
-        if rem > 0:
-            remaining += rem
-    for _ in range(remaining):
-        allocated = False
-        for i, item in enumerate(entities_or_relations):
-            chunks = item.get("sorted_chunks", [])
-            if used_counts[i] < len(chunks):
-                selected_chunks.append(chunks[used_counts[i]])
-                used_counts[i] += 1
-                allocated = True
-                break
-        if not allocated:
-            break
-    return selected_chunks
-
-
 def cosine_similarity(v1: Sequence[float], v2: Sequence[float]) -> float:
     v1_arr = np.array(v1)
     v2_arr = np.array(v2)
@@ -356,34 +311,6 @@ def cosine_similarity(v1: Sequence[float], v2: Sequence[float]) -> float:
     if denom == 0:
         return 0.0
     return float(np.dot(v1_arr, v2_arr) / denom)
-
-
-async def pick_by_vector_similarity(
-    query: str,
-    text_chunks_storage,
-    chunks_vdb,
-    num_of_chunks: int,
-    entity_info: list[dict[str, Any]],
-    embedding_func: callable,
-    query_embedding=None,
-) -> list[str]:
-    chunk_ids: list[str] = []
-    for item in entity_info:
-        chunk_ids.extend(item.get("sorted_chunks", item.get("chunks", [])))
-    chunk_ids = list(dict.fromkeys(chunk_ids))
-    if not chunk_ids:
-        return []
-    chunk_vectors = await chunks_vdb.get_vectors_by_ids(chunk_ids)
-    if query_embedding is None:
-        query_embedding = (await embedding_func([query], context="query", _priority=5))[0]
-    scored: list[tuple[str, float]] = []
-    for chunk_id in chunk_ids:
-        vector = chunk_vectors.get(chunk_id)
-        if vector is None:
-            continue
-        scored.append((chunk_id, cosine_similarity(query_embedding, vector)))
-    scored.sort(key=lambda item: item[1], reverse=True)
-    return [chunk_id for chunk_id, _ in scored[: max(0, num_of_chunks)]]
 
 
 async def apply_rerank_if_enabled(

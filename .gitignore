@@ -5,8 +5,25 @@ __pycache__
 *.db      
 *.log
 *.sqlite3
-*.env
+# Environment files and local credentials
 .env
+.env.*
+*.env
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*credentials*.json
+*service-account*.json
+*service_account*.json
 *.venv
 venv/
 env/
@@ -20,12 +37,12 @@ apple*
 0000*
 GRAPH_IS_HERE/*
 !GRAPH_IS_HERE/.gitkeep
-!GRAPH_IS_HERE/artifact_manifest.json
 to_be_extracted/*
 !to_be_extracted/.gitkeep
 !to_be_extracted/README.md
-extractions/demo_doc_*.json
-extractions/reconciled_demo_doc_*.json
+extractions/*
+!extractions/.gitkeep
+!extractions/README.md
 # Eval artifacts: ignore generated results and generated testcases
 evals/results/*.jsonl
 !evals/results/README.md
@@ -49,6 +66,5 @@ CLAUDE.md
 PAPER_MEMORY.md
 MEMORY.md
 RESEARCH_PLAN.md
-
 # setuptools editable-install metadata
 *.egg-info/

@@ -6,6 +6,12 @@ A skill is an agent-readable instruction file that teaches the system how to ext
 
 For the best graph quality in this repo, prefer markdown and plain text inputs. Preciso does not include a built-in parser or OCR layer, so PDFs are outside the recommended default path.
 
+## Verify the source before using a skill
+
+Do not start extraction until a human has confirmed that every source document is accurate, current, complete, and the intended version. A skill tells the agent how to represent what a document says; it does not certify that the document itself is true.
+
+This review must happen before the agent reads and extracts the corpus. Extraction may consume paid agent or language-model credits, and ingestion may consume paid embedding-provider credits when it creates vectors for chunks, entities, and relationships. Processing flawed data can waste both sets of credits and may later require re-extraction plus a full graph rebuild.
+
 ## The three built-in skills
 
 ### Financial-Graph-Extraction

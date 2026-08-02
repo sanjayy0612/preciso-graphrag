@@ -106,7 +106,7 @@ async def ingest_graph_tool(payload: dict) -> dict:
     """
     TOOL: ingest_graph_tool
     
-    PURPOSE: Ingest extraction JSON payload directly into knowledge graph (in-memory, no file read)
+    PURPOSE: Additively ingest a reviewed extraction payload (in-memory, no file read)
     
     INPUT:
         payload (dict): Extraction JSON with this structure:
@@ -136,19 +136,20 @@ async def ingest_graph_tool(payload: dict) -> dict:
     WHEN TO USE:
         - Agent extracts document and passes JSON directly (not from file)
         - Quick in-memory ingestion without file I/O
+        - Adds new evidence; does not replace an earlier document version
     """
     return await ingest_extracted_json(payload, storage_instances, global_config)
 
 
 @mcp.tool(
     name="ingest_from_file",
-    description="Read agent extraction JSON from disk and ingest into knowledge graph",
+    description="Add a reviewed extraction file to the graph. Ingestion is additive, not replacement.",
 )
 async def ingest_from_file_tool(file_path: str) -> dict:
     """
     TOOL: ingest_from_file
     
-    PURPOSE: Read extraction JSON file from disk and ingest it into knowledge graph
+    PURPOSE: Read a reviewed extraction file and add it to the knowledge graph
     
     INPUT:
         file_path (str): Path to extraction file
@@ -179,8 +180,14 @@ async def ingest_from_file_tool(file_path: str) -> dict:
     
     WHEN TO USE:
         - After agent extraction (extraction file is written to disk)
+        - After the user confirms the source and extraction are correct and current
         - You want to manually control when ingestion happens
         - File-based workflow for audit trail
+
+    IMPORTANT:
+        - Ingestion is additive and does not replace prior document contributions.
+        - Correcting already-ingested content requires a clean full rebuild from
+          the corrected extraction plus every other valid extraction.
     
     RELATED:
         → Used after agent calls: ingest_from_file("extractions/document_extracted.json")
@@ -191,22 +198,21 @@ async def ingest_from_file_tool(file_path: str) -> dict:
 
 @mcp.tool(
     name="reingest_from_file",
-    description="Re-run ingestion on existing extraction file. Use when pipeline failed but extraction is intact.",
+    description="Replay the identical extraction after an operational failure. Never use for correction or replacement.",
 )
 async def reingest_from_file_tool(file_path: str) -> dict:
     """
     TOOL: reingest_from_file
     
-    PURPOSE: Re-ingest an already-extracted file WITHOUT re-running extraction
-    Useful for debugging/recovering from ingestion failures
+    PURPOSE: Replay the identical extraction WITHOUT re-running extraction
+    Useful only for debugging/recovering from ingestion failures
     
     INPUT:
         file_path (str): Path to extraction file (same as ingest_from_file)
     
     PROCESS:
         1. Reads extraction file from disk
-        2. Skips "already ingested" checks
-        3. Replays entire ingestion pipeline:
+        2. Replays the entire ingestion pipeline:
            - Validation
            - Transformation (entities → nodes, relations → edges)
            - Merging with existing graph
@@ -224,9 +230,14 @@ async def reingest_from_file_tool(file_path: str) -> dict:
     
     WHEN TO USE:
         - Extraction succeeded but ingestion failed (e.g., DB error, network issue)
-        - Want to retry ingestion without re-calling LLM/agent
+        - You want to retry the identical extraction without re-calling LLM/agent
         - Saves API costs during development/debugging
         - File already exists: extractions/document_extracted.json
+
+    DO NOT USE:
+        - To correct or replace an already-ingested document
+        - With a changed extraction under an existing document_id
+        Changed content requires an empty graph rebuilt from the complete valid corpus.
     
     WORKFLOW:
         Scenario: Agent extracted "document.md" → extractions/document_extracted.json
@@ -236,7 +247,7 @@ async def reingest_from_file_tool(file_path: str) -> dict:
     
     DIFFERENCE FROM ingest_from_file:
         - ingest_from_file: Initial ingestion (default behavior)
-        - reingest_from_file: Recovery/replay (same internal logic, different intent)
+        - reingest_from_file: Identical recovery replay (same internal logic, different intent)
         Internally: Both call _ingest_file() with same logic
     """
     return await reingest_from_file(file_path, storage_instances, global_config)

@@ -17,13 +17,15 @@ logger = logging.getLogger("graphrag_mcp")
 DEFAULT_MAX_ENTITY_TOKENS = int(os.getenv("GRAPHRAG_MAX_ENTITY_TOKENS", "4000"))
 DEFAULT_MAX_RELATION_TOKENS = int(os.getenv("GRAPHRAG_MAX_RELATION_TOKENS", "4000"))
 DEFAULT_MAX_TOTAL_TOKENS = int(os.getenv("GRAPHRAG_MAX_TOTAL_TOKENS", "16000"))
-DEFAULT_RELATED_CHUNK_NUMBER = int(os.getenv("GRAPHRAG_RELATED_CHUNK_NUMBER", "8"))
+DEFAULT_KG_EVIDENCE_TOP_K = int(os.getenv("GRAPHRAG_KG_EVIDENCE_TOP_K", "8"))
+DEFAULT_KG_EVIDENCE_MIN_SIMILARITY = float(
+    os.getenv("GRAPHRAG_KG_EVIDENCE_MIN_SIMILARITY", "0.35")
+)
 
 # ============================================================================
 # KNOWLEDGE GRAPH DEFAULTS (used by merge.py, query.py)
 # Controls entity/relationship merging and retrieval behavior
 # ============================================================================
-DEFAULT_KG_CHUNK_PICK_METHOD = "WEIGHT"        # Method to select important chunks: "WEIGHT" or other
 DEFAULT_MAX_FILE_PATHS = 8                     # Max source file paths to store per entity/relation
 DEFAULT_FILE_PATH_MORE_PLACEHOLDER = "more_paths"  # Placeholder when truncating file paths
 DEFAULT_ENTITY_NAME_MAX_LENGTH = 255           # Max entity name length
@@ -395,8 +397,8 @@ def build_global_config(
         # KNOWLEDGE GRAPH SETTINGS (used by merge.py, query.py)
         # Controls entity/relation retrieval and filtering
         # ====================================================================
-        "related_chunk_number": DEFAULT_RELATED_CHUNK_NUMBER,  # Chunks to retrieve per query
-        "kg_chunk_pick_method": DEFAULT_KG_CHUNK_PICK_METHOD,  # How to select chunks: "WEIGHT" or others
+        "kg_evidence_top_k": DEFAULT_KG_EVIDENCE_TOP_K,        # Global cap after all evidence sources are merged
+        "kg_evidence_min_similarity": DEFAULT_KG_EVIDENCE_MIN_SIMILARITY,  # Reject weak evidence
         "yoy_signal_phrases": DEFAULT_YOY_SIGNAL_PHRASES,      # Comparison-query phrases (query.py mode upgrade)
         
         # ====================================================================

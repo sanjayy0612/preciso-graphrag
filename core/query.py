@@ -8,11 +8,11 @@ from functools import partial
 from typing import Any
 
 from config import (
-    DEFAULT_KG_CHUNK_PICK_METHOD,
+    DEFAULT_KG_EVIDENCE_MIN_SIMILARITY,
+    DEFAULT_KG_EVIDENCE_TOP_K,
     DEFAULT_MAX_ENTITY_TOKENS,
     DEFAULT_MAX_RELATION_TOKENS,
     DEFAULT_MAX_TOTAL_TOKENS,
-    DEFAULT_RELATED_CHUNK_NUMBER,
     DEFAULT_YOY_SIGNAL_PHRASES,
     PROMPTS,
     GRAPH_FIELD_SEP,
@@ -27,13 +27,12 @@ from core.storage.base import (
 )
 from core.utils import (
     compute_args_hash,
+    compute_mdhash_id,
     convert_to_user_format,
+    cosine_similarity,
     generate_reference_list_from_chunks,
     handle_cache,
     logger,
-    pack_user_ass_to_openai_messages,
-    pick_by_vector_similarity,
-    pick_by_weighted_polling,
     process_chunks_unified,
     remove_think_tags,
     save_to_cache,
@@ -43,6 +42,76 @@ from core.utils import (
     use_llm_func_with_cache,
     CacheData,
 )
+
+
+class EvidenceVectorIntegrityError(RuntimeError):
+    """Raised when stored evidence cannot be resolved to a chunk vector."""
+
+
+async def select_evidence_chunks_by_vector(
+    query: str,
+    candidates: list[dict],
+    chunks_vdb: BaseVectorStorage,
+    top_k: int,
+    min_similarity: float,
+    query_embedding: list[float] | None = None,
+) -> list[dict]:
+    """Strictly rank a merged evidence set using the original query vector."""
+    if not candidates:
+        return []
+    if chunks_vdb is None:
+        raise EvidenceVectorIntegrityError("chunk vector storage is required for evidence retrieval")
+    if top_k <= 0:
+        raise ValueError("kg_evidence_top_k must be greater than zero")
+    if not -1.0 <= min_similarity <= 1.0:
+        raise ValueError("kg_evidence_min_similarity must be between -1.0 and 1.0")
+
+    unique_candidates: list[dict] = []
+    seen_chunk_ids: set[str] = set()
+    for candidate in candidates:
+        chunk_id = candidate.get("chunk_id") or candidate.get("id")
+        if not chunk_id or chunk_id in seen_chunk_ids:
+            continue
+        seen_chunk_ids.add(chunk_id)
+        normalized = candidate.copy()
+        normalized["chunk_id"] = chunk_id
+        unique_candidates.append(normalized)
+
+    vector_id_by_chunk_id = {
+        candidate["chunk_id"]: compute_mdhash_id(candidate["chunk_id"], prefix="vchunk-")
+        for candidate in unique_candidates
+    }
+    vectors = await chunks_vdb.get_vectors_by_ids(list(vector_id_by_chunk_id.values()))
+    missing_chunk_ids = [
+        chunk_id
+        for chunk_id, vector_id in vector_id_by_chunk_id.items()
+        if vector_id not in vectors
+    ]
+    if missing_chunk_ids:
+        preview = ", ".join(missing_chunk_ids[:5])
+        suffix = "" if len(missing_chunk_ids) <= 5 else f" (+{len(missing_chunk_ids) - 5} more)"
+        raise EvidenceVectorIntegrityError(
+            f"missing chunk vector(s) for evidence: {preview}{suffix}; reingest or rebuild the chunk vector index"
+        )
+
+    if query_embedding is None:
+        embedding_func = getattr(chunks_vdb, "embedding_func", None)
+        if embedding_func is None:
+            raise EvidenceVectorIntegrityError("chunk vector storage has no query embedding function")
+        query_embedding = (await embedding_func([query], context="query", _priority=5))[0]
+
+    scored_candidates: list[tuple[float, int, dict]] = []
+    for index, candidate in enumerate(unique_candidates):
+        vector_id = vector_id_by_chunk_id[candidate["chunk_id"]]
+        similarity = cosine_similarity(query_embedding, vectors[vector_id])
+        if similarity < min_similarity:
+            continue
+        ranked = candidate.copy()
+        ranked["similarity_score"] = similarity
+        scored_candidates.append((similarity, index, ranked))
+    scored_candidates.sort(key=lambda item: (-item[0], item[1]))
+    return [candidate for _score, _index, candidate in scored_candidates[:top_k]]
+
 
 def _detect_comparison_query(query: str, signal_phrases: list[str]) -> bool:
     """
@@ -114,7 +183,7 @@ async def _get_vector_context(
                         "created_at": result.get("created_at"),
                         "file_path": result.get("file_path", "unknown_source"),
                         "source_type": "vector",
-                        "chunk_id": result.get("id"),
+                        "chunk_id": result.get("chunk_id") or result.get("id"),
                     }
                 )
         return valid_chunks
@@ -195,6 +264,10 @@ async def kg_query(
         ll_keywords_str,
         query_param.user_prompt or "",
         query_param.enable_rerank,
+        global_config.get("kg_evidence_top_k", DEFAULT_KG_EVIDENCE_TOP_K),
+        global_config.get(
+            "kg_evidence_min_similarity", DEFAULT_KG_EVIDENCE_MIN_SIMILARITY
+        ),
     )
     cached_result = await handle_cache(
         hashing_kv, args_hash, query, query_param.mode, cache_type="query"
@@ -260,10 +333,9 @@ async def _perform_kg_search(
     global_relations = []
     vector_chunks = []
     chunk_tracking: dict[str, dict[str, Any]] = {}
-    kg_chunk_pick_method = text_chunks_db.global_config.get(
-        "kg_chunk_pick_method", DEFAULT_KG_CHUNK_PICK_METHOD
+    actual_embedding_func = getattr(chunks_vdb, "embedding_func", None) or getattr(
+        entities_vdb, "embedding_func", None
     )
-    actual_embedding_func = text_chunks_db.embedding_func
     query_embedding = None
     ll_embedding = None
     hl_embedding = None
@@ -273,7 +345,7 @@ async def _perform_kg_search(
     if actual_embedding_func:
         texts_to_embed = []
         text_purposes = []
-        if query and (kg_chunk_pick_method == "VECTOR" or chunks_vdb):
+        if query and chunks_vdb:
             texts_to_embed.append(query)
             text_purposes.append("query")
         if need_ll:
@@ -525,7 +597,17 @@ async def _merge_all_chunks(
                         "chunk_id": chunk_id,
                     }
                 )
-    return merged_chunks
+    global_config = text_chunks_db.global_config
+    return await select_evidence_chunks_by_vector(
+        query=query,
+        candidates=merged_chunks,
+        chunks_vdb=chunks_vdb,
+        top_k=global_config.get("kg_evidence_top_k", DEFAULT_KG_EVIDENCE_TOP_K),
+        min_similarity=global_config.get(
+            "kg_evidence_min_similarity", DEFAULT_KG_EVIDENCE_MIN_SIMILARITY
+        ),
+        query_embedding=query_embedding,
+    )
 
 
 async def _build_context_str(
@@ -768,12 +850,6 @@ async def _find_related_text_unit_from_entities(
                 )
     if not entities_with_chunks:
         return []
-    kg_chunk_pick_method = text_chunks_db.global_config.get(
-        "kg_chunk_pick_method", DEFAULT_KG_CHUNK_PICK_METHOD
-    )
-    max_related_chunks = text_chunks_db.global_config.get(
-        "related_chunk_number", DEFAULT_RELATED_CHUNK_NUMBER
-    )
     chunk_occurrence_count = {}
     for entity_info in entities_with_chunks:
         deduplicated_chunks = []
@@ -787,24 +863,7 @@ async def _find_related_text_unit_from_entities(
             key=lambda chunk_id: chunk_occurrence_count.get(chunk_id, 0),
             reverse=True,
         )
-    selected_chunk_ids = []
-    if kg_chunk_pick_method == "VECTOR" and query and chunks_vdb:
-        num_of_chunks = int(max_related_chunks * len(entities_with_chunks) / 2)
-        actual_embedding_func = text_chunks_db.embedding_func
-        if actual_embedding_func:
-            selected_chunk_ids = await pick_by_vector_similarity(
-                query=query,
-                text_chunks_storage=text_chunks_db,
-                chunks_vdb=chunks_vdb,
-                num_of_chunks=num_of_chunks,
-                entity_info=entities_with_chunks,
-                embedding_func=actual_embedding_func,
-                query_embedding=query_embedding,
-            )
-    if not selected_chunk_ids:
-        selected_chunk_ids = pick_by_weighted_polling(
-            entities_with_chunks, max_related_chunks, min_related_chunks=1
-        )
+    selected_chunk_ids = list(chunk_occurrence_count)
     unique_chunk_ids = list(dict.fromkeys(selected_chunk_ids))
     chunk_data_list = await text_chunks_db.get_by_ids(unique_chunk_ids)
     result_chunks = []
@@ -907,12 +966,6 @@ async def _find_related_text_unit_from_relations(
                 )
     if not relations_with_chunks:
         return []
-    kg_chunk_pick_method = text_chunks_db.global_config.get(
-        "kg_chunk_pick_method", DEFAULT_KG_CHUNK_PICK_METHOD
-    )
-    max_related_chunks = text_chunks_db.global_config.get(
-        "related_chunk_number", DEFAULT_RELATED_CHUNK_NUMBER
-    )
     entity_chunk_ids = {chunk.get("chunk_id") for chunk in (entity_chunks or []) if chunk.get("chunk_id")}
     chunk_occurrence_count = {}
     for relation_info in relations_with_chunks:
@@ -933,24 +986,7 @@ async def _find_related_text_unit_from_relations(
             key=lambda chunk_id: chunk_occurrence_count.get(chunk_id, 0),
             reverse=True,
         )
-    selected_chunk_ids = []
-    if kg_chunk_pick_method == "VECTOR" and query and chunks_vdb:
-        num_of_chunks = int(max_related_chunks * len(relations_with_chunks) / 2)
-        actual_embedding_func = text_chunks_db.embedding_func
-        if actual_embedding_func:
-            selected_chunk_ids = await pick_by_vector_similarity(
-                query=query,
-                text_chunks_storage=text_chunks_db,
-                chunks_vdb=chunks_vdb,
-                num_of_chunks=num_of_chunks,
-                entity_info=relations_with_chunks,
-                embedding_func=actual_embedding_func,
-                query_embedding=query_embedding,
-            )
-    if not selected_chunk_ids:
-        selected_chunk_ids = pick_by_weighted_polling(
-            relations_with_chunks, max_related_chunks, min_related_chunks=1
-        )
+    selected_chunk_ids = list(chunk_occurrence_count)
     unique_chunk_ids = list(dict.fromkeys(selected_chunk_ids))
     chunk_data_list = await text_chunks_db.get_by_ids(unique_chunk_ids)
     result_chunks = []

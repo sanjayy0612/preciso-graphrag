@@ -125,12 +125,23 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
                     "chunk_id": part_id,
                 }
         if chunk_upserts:
-            await text_chunks.upsert(chunk_upserts)
             await safe_vdb_operation_with_exception(
                 operation=lambda payload=chunk_vdb_upserts: chunks_vdb.upsert(payload),
                 operation_name="chunk_upsert",
                 entity_name=document_id,
             )
+            indexed_vectors = await chunks_vdb.get_vectors_by_ids(list(chunk_vdb_upserts))
+            missing_vector_ids = [
+                vector_id for vector_id in chunk_vdb_upserts if vector_id not in indexed_vectors
+            ]
+            if missing_vector_ids:
+                raise RuntimeError(
+                    f"chunk vector integrity check failed for document `{document_id}`: "
+                    f"{len(missing_vector_ids)} vector(s) missing after upsert"
+                )
+            # Persist chunk text only after its vector is known to exist. This
+            # prevents graph evidence from citing text that cannot be ranked.
+            await text_chunks.upsert(chunk_upserts)
 
         def normalize_source_id(record: dict) -> dict:
             normalized = dict(record)

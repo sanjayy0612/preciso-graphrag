@@ -15,7 +15,11 @@ SUPPORTED_JSON_SUFFIXES = {".json"}
 
 async def ingest_from_file(file_path: str, storage_instances: dict, global_config: dict) -> dict:
     """
-    Reads agent extraction output from disk and ingests into graph.
+    Reads a reviewed extraction from disk and additively ingests it into the graph.
+
+    This operation does not replace or remove contributions from an earlier
+    version of a document. Correcting already-ingested content requires a full
+    rebuild from the complete valid corpus.
 
     Supports:
       .json files: parsed directly as JSON
@@ -34,10 +38,11 @@ async def ingest_from_file(file_path: str, storage_instances: dict, global_confi
 
 async def reingest_from_file(file_path: str, storage_instances: dict, global_config: dict) -> dict:
     """
-    Re-runs ingestion on an already-extracted file.
-    Skips any 'already ingested' checks.
-    Identical logic to ingest_from_file.
-    Used when pipeline failed but extraction file is intact.
+    Replays an identical extraction after an operational ingestion failure.
+
+    Identical logic to ingest_from_file; this is recovery replay, not document
+    correction or replacement. A changed extraction must not be replayed into
+    the existing graph because ingestion is additive.
     """
 
     return await _ingest_file(file_path, storage_instances, global_config)

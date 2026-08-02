@@ -96,13 +96,36 @@ Best inputs: `.md`, `.txt`, README files, wiki exports, notes.
 
 > For PDFs: convert to `.md` first, or use Claude Code / Codex which can read PDFs natively.
 
+### Important: verify your source documents before extraction
+
+Before you ask an agent to process anything in `to_be_extracted/`, check the source documents yourself. Make sure they are factually correct, current, complete, and the exact versions you want represented in the graph. Extraction validation can catch structural problems, but it cannot guarantee that the source document itself is true.
+
+Starting with flawed source data can waste both time and money:
+
+- Extraction may consume paid agent or language-model credits.
+- Ingestion generates chunk, entity, and relationship embeddings, which may consume paid embedding-provider credits.
+- Flawed evidence can propagate into shared entities, relationships, descriptions, summaries, source links, and embeddings.
+- Correcting the mistake later may require regenerating the extraction and rebuilding the entire graph from every valid extraction.
+
+Before starting extraction:
+
+- Remove drafts, duplicates, and superseded document versions.
+- Confirm that every remaining document is accurate, final, and belongs in the corpus.
+- Preserve the validated source documents so the graph can be reproduced later.
+- Start the agent extraction workflow only after you are satisfied with the source corpus.
+
+The agent will perform a second, structural validation of the generated extraction before ingestion. That second check complements—but does not replace—your review of the original data.
+
+If you discover flawed source data after it has entered the graph, follow the [full correction workflow](docs/faq.md#how-do-i-correct-an-already-ingested-document).
+
 ### 3. Run this prompt in your agent
 
 Open Codex, Claude Code, Copilot, or OpenCode from the repo root.
 
 **Quick version:**
 ```
-Process the files in to_be_extracted/ using Preciso.
+Process the files in to_be_extracted/ using Preciso. Before ingestion, show me
+the validation summary and ask me to confirm that the corpus is correct and current.
 ```
 
 <details>
@@ -118,9 +141,13 @@ Choose the most appropriate extraction skill from the skills folder for each fil
 Extract entities, relationships, and chunks into extractions/{source_name}_extracted.json.
 Validate that every source_id maps to a real chunk_id and that all relationships
 reference defined entities.
-If the extraction looks clean, call ingest_from_file for each generated extraction file.
 If you find duplicate entities, orphaned relationships, or conflicts,
 use the reconciliation skill before ingestion.
+Before calling any ingestion tool, summarize the source files, document IDs,
+entity/relationship/chunk counts, validation results, and unresolved concerns.
+Explain that ingestion is additive and ask me to confirm that the source documents
+and extractions are correct, current, and ready to persist.
+Only after I confirm, call ingest_from_file for each generated extraction file.
 Confirm the graph artifacts written to GRAPH_IS_HERE/ and summarize what was ingested.
 ```
 
@@ -149,7 +176,7 @@ Six steps, always in this order:
 to_be_extracted/    ← drop your source files here (.md, .txt)
 skills/             ← agent reads these to know how to extract
 extractions/        ← agent writes extraction JSON here
-GRAPH_IS_HERE/      ← graph artifacts live here (source of truth)
+GRAPH_IS_HERE/      ← complete operational graph artifacts
 docs/               ← guides and architecture reference
 evals/              ← benchmark test cases and results
 ```
@@ -173,9 +200,9 @@ evals/              ← benchmark test cases and results
 | Tool | Description |
 |------|-------------|
 | `get_server_status` | Runtime health check — call before anything |
-| `ingest_from_file` | Ingest a completed extraction JSON file |
-| `reingest_from_file` | Retry ingestion without re-extracting |
-| `ingest_graph_tool` | Ingest an inline extraction payload |
+| `ingest_from_file` | Add a new, reviewed extraction to the graph |
+| `reingest_from_file` | Replay the identical extraction after an operational failure |
+| `ingest_graph_tool` | Add a new, reviewed inline extraction payload |
 | `ingest_with_reconciliation_tool` | Ingest after reconciliation subagents finish |
 | `query_graph_tool` | Query the persisted graph |
 | `list_pending_summaries` | Agent-handshake mode only: entities/relations deferred for you to summarize |
@@ -267,13 +294,18 @@ GRAPH_IS_HERE/
 ├── kv_store_text_chunks.json
 ├── kv_store_entity_chunks.json
 ├── kv_store_relation_chunks.json
+├── kv_store_pending_summaries.json
+├── kv_store_llm_cache.json
+├── kv_store_checkpoints.json
 ├── vdb_entities.json
 ├── vdb_relationships.json
 ├── vdb_chunks.json
 └── artifact_manifest.json
 ```
 
-The most portable artifact is `graph_graph.graphml`. Copy the whole folder to move the graph to another machine.
+The most portable single artifact is `graph_graph.graphml`, but the complete operational graph includes every file in `GRAPH_IS_HERE/`, especially the vector and evidence stores. Copy the whole folder to move the graph to another machine.
+
+`GRAPH_IS_HERE/` is generated state, not a replacement for the source corpus. Retain the source documents and reviewed files in `extractions/` so the graph can be rebuilt from the complete valid corpus when a correction is required.
 
 ---
 
@@ -284,14 +316,14 @@ The most portable artifact is `graph_graph.graphml`. Copy the whole folder to mo
   <img src="https://img.shields.io/badge/Qdrant-Vector%20Export-DC2626?style=for-the-badge" alt="Qdrant" />
 </p>
 
-`GRAPH_IS_HERE/` is always the source of truth. Neo4j and Qdrant are optional downstream copies — not storage backends.
+`GRAPH_IS_HERE/` is always the operational source of truth. Neo4j and Qdrant are optional downstream copies — not storage backends.
 
 ```
 Local graph (master) → optional → Neo4j copy
 Local graph (master) → optional → Qdrant copy
 ```
 
-Think of it like a Google Doc you export to PDF. The Doc is the real thing. The PDF is a snapshot for sharing. If you re-ingest locally, the local graph updates. Downstream copies do not auto-update — you re-export when ready.
+Think of it like a Google Doc you export to PDF. The local graph is the operational original and the exports are snapshots for sharing. After additive ingestion or a full rebuild, downstream copies remain stale until you export again.
 
 <details>
 <summary>Neo4j export config</summary>
@@ -373,6 +405,7 @@ python3 test/reconcile_manual.py
 
 | Guide | What it covers |
 |-------|----------------|
+| [CONTEXT.md](CONTEXT.md) | Canonical document-lifecycle terminology |
 | [docs/getting-started.md](docs/getting-started.md) | Full setup including embeddings and exports |
 | [docs/skills-guide.md](docs/skills-guide.md) | How to use and write extraction skills |
 | [docs/eval-guide.md](docs/eval-guide.md) | How to run evaluation and read results |
@@ -385,6 +418,7 @@ python3 test/reconcile_manual.py
 
 - Best input format is `.md` or `.txt` — PDF handling depends on external conversion or a native PDF-capable agent
 - Retrieval quality depends on embedding configuration
+- Ingestion is additive; in-place document correction, replacement, and deletion are not supported
 - Neo4j and Qdrant exports require those services running externally
 - Single-user local workflow — no built-in multi-user or shared graph support yet
 

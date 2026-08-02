@@ -9,7 +9,7 @@ import logging
 from config import GRAPH_FIELD_SEP
 from core.query import _find_related_text_unit_from_entities, _find_related_text_unit_from_relations
 from core.storage.base import QueryParam
-from core.utils import logger as graphrag_logger
+from core.utils import compute_mdhash_id, logger as graphrag_logger
 from ingest.pipeline import ingest_extracted_json
 
 
@@ -74,9 +74,15 @@ async def test_ingest_success_and_artifacts_written(storage_stack):
     assert "chunk-1" in node["source_id"]
     edge = await storage_instances["graph"].get_edge("TIM_COOK", "APPLE")
     assert edge is not None and "chunk-2" in edge["source_id"]
+    chunk_vector_ids = [
+        compute_mdhash_id(chunk_id, prefix="vchunk-")
+        for chunk_id in ("doc_e2e::chunk-1", "doc_e2e::chunk-2")
+    ]
+    stored_vectors = await storage_instances["chunks_vdb"].get_vectors_by_ids(chunk_vector_ids)
+    assert set(stored_vectors) == set(chunk_vector_ids)
 
 
-async def test_reingest_same_payload_is_idempotent(storage_stack):
+async def test_identical_recovery_replay_is_idempotent(storage_stack):
     storage_instances, global_config, _ = storage_stack
     payload = make_payload()
     first = await ingest_extracted_json(payload, storage_instances, global_config)
@@ -128,16 +134,77 @@ async def test_non_dict_payload_errors(storage_stack):
     assert result["status"] == "error"
 
 
-async def test_entity_descriptions_accumulate_sep_joined(storage_stack):
+async def test_new_document_incrementally_adds_entity_evidence(storage_stack):
     storage_instances, global_config, _ = storage_stack
     payload = make_payload()
     await ingest_extracted_json(payload, storage_instances, global_config)
-    second = copy.deepcopy(payload)
-    second["entities"][0]["description"] = "Apple designs the iPhone."
-    await ingest_extracted_json(second, storage_instances, global_config)
+    followup = {
+        "document_id": "doc_e2e_followup",
+        "file_path": "doc_e2e_followup.md",
+        "timestamp": 1_700_000_100,
+        "chunks": [{"chunk_id": "chunk-1", "content": "Apple designs the iPhone."}],
+        "entities": [
+            {
+                "entity_name": "APPLE",
+                "entity_type": "ORG",
+                "description": "Apple designs the iPhone.",
+                "source_id": "chunk-1",
+            }
+        ],
+        "relationships": [],
+    }
+    await ingest_extracted_json(followup, storage_instances, global_config)
+
     node = await storage_instances["graph"].get_node("APPLE")
     segments = node["description"].split(GRAPH_FIELD_SEP)
     assert segments == ["Apple is a technology company.", "Apple designs the iPhone."]
+    assert node["source_id"].split(GRAPH_FIELD_SEP) == [
+        "doc_e2e::chunk-1",
+        "doc_e2e::chunk-2",
+        "doc_e2e_followup::chunk-1",
+    ]
+
+
+async def test_changed_same_document_payload_is_additive_not_replacement(storage_stack):
+    storage_instances, global_config, _ = storage_stack
+    initial = {
+        "document_id": "doc_changed",
+        "file_path": "doc_changed.md",
+        "chunks": [{"chunk_id": "chunk-1", "content": "Old ACME evidence. " * 100}],
+        "entities": [
+            {
+                "entity_name": "ACME",
+                "entity_type": "ORG",
+                "description": "Old ACME description.",
+                "source_id": "chunk-1",
+            }
+        ],
+        "relationships": [],
+    }
+    changed = {
+        "document_id": "doc_changed",
+        "file_path": "doc_changed.md",
+        "chunks": [{"chunk_id": "chunk-1", "content": "Corrected ACME evidence."}],
+        "entities": [
+            {
+                "entity_name": "ACME",
+                "entity_type": "ORG",
+                "description": "Corrected ACME description.",
+                "source_id": "chunk-1",
+            }
+        ],
+        "relationships": [],
+    }
+
+    await ingest_extracted_json(initial, storage_instances, global_config)
+    await ingest_extracted_json(changed, storage_instances, global_config)
+
+    node = await storage_instances["graph"].get_node("ACME")
+    source_ids = node["source_id"].split(GRAPH_FIELD_SEP)
+    assert "doc_changed::chunk-1" in source_ids
+    assert any(chunk_id.startswith("doc_changed::chunk-1-p") for chunk_id in source_ids)
+    descriptions = node["description"].split(GRAPH_FIELD_SEP)
+    assert descriptions == ["Old ACME description.", "Corrected ACME description."]
 
 
 async def test_source_ids_expand_split_chunks_and_report_danglers(storage_stack, caplog):
