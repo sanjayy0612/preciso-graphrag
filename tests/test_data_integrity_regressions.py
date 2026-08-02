@@ -183,6 +183,36 @@ async def test_file_ingest_forwards_pipeline_warnings(tmp_path, monkeypatch):
     assert result["warnings"] == ["entity `GHOST` has unresolvable source_id(s): doc::chunk-99"]
 
 
+async def test_file_ingest_reports_added_merged_and_duplicate_counts(tmp_path, monkeypatch):
+    extraction_path = tmp_path / "extraction.json"
+    extraction_path.write_text(
+        json.dumps({"document_id": "doc", "entities": [], "relationships": [], "chunks": []}),
+        encoding="utf-8",
+    )
+    counts = {
+        "entities": {"added": 1, "merged": 2, "skipped_duplicate": 3},
+        "relationships": {"added": 4, "merged": 5, "skipped_duplicate": 6},
+        "chunks": {"added": 7, "merged": 8, "skipped_duplicate": 9},
+    }
+
+    async def fake_ingest(*_args, **_kwargs):
+        return {
+            "status": "success",
+            "entities_merged": 6,
+            "relationships_merged": 15,
+            "chunks_ingested": 24,
+            "ingestion_counts": counts,
+        }
+
+    monkeypatch.setattr(ingest_from_file_tool, "ingest_extracted_json", fake_ingest)
+    result = await ingest_from_file_tool.ingest_from_file(str(extraction_path), {}, {})
+
+    assert result["entities_added"] == 1
+    assert result["relationships_added"] == 4
+    assert result["chunks_stored"] == 7
+    assert result["ingestion_counts"] == counts
+
+
 async def test_reconciliation_forwards_pipeline_warnings(tmp_path, monkeypatch):
     extraction_path = tmp_path / "base.json"
     extraction_path.write_text(

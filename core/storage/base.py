@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Literal, Optional, TypedDict
@@ -83,9 +84,24 @@ class EmbeddingFunc:
     func: Callable[..., Any]
     model_name: str | None = None
     supports_asymmetric: bool = False
+    initialization_error: str | None = None
+    runtime_error: str | None = None
+    last_runtime_failure_at: int | None = None
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return await self.func(*args, **kwargs)
+        try:
+            result = await self.func(*args, **kwargs)
+        except Exception as exc:
+            model = self.model_name or "unknown"
+            self.runtime_error = f"Embedding request failed for model {model}: {exc}"
+            self.last_runtime_failure_at = int(time.time())
+            raise
+        self.runtime_error = None
+        self.last_runtime_failure_at = None
+        # A successful real request proves that a failed startup probe has
+        # recovered, so status should no longer remain degraded.
+        self.initialization_error = None
+        return result
 
 
 @dataclass

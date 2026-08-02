@@ -15,6 +15,7 @@ from core.runtime_status import update_artifact_manifest
 from core.storage.base import QueryParam
 from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
+from ingest.validator import validate_extraction_structure
 from preciso_mcp.tools.export_tool import export_to_neo4j, export_to_qdrant
 from preciso_mcp.tools.ingest_from_file_tool import ingest_from_file, reingest_from_file
 from preciso_mcp.tools.pending_summaries_tool import list_pending_summaries, submit_summary
@@ -127,9 +128,14 @@ async def ingest_graph_tool(payload: dict) -> dict:
     OUTPUT:
         {
             "status": "success" | "error" | "validation_failed",
-            "entities_added": int,
-            "relationships_added": int,
-            "chunks_stored": int,
+            "entities_merged": int,  # legacy total processed
+            "relationships_merged": int,  # legacy total processed
+            "chunks_ingested": int,  # legacy total processed
+            "ingestion_counts": {
+                "entities": {"added": int, "merged": int, "skipped_duplicate": int},
+                "relationships": {"added": int, "merged": int, "skipped_duplicate": int},
+                "chunks": {"added": int, "merged": int, "skipped_duplicate": int}
+            },
             "message": "status message"
         }
     
@@ -138,7 +144,20 @@ async def ingest_graph_tool(payload: dict) -> dict:
         - Quick in-memory ingestion without file I/O
         - Adds new evidence; does not replace an earlier document version
     """
-    return await ingest_extracted_json(payload, storage_instances, global_config)
+    validation_errors = validate_extraction_structure(payload)
+    if validation_errors:
+        return {
+            "status": "validation_failed",
+            "entities_merged": 0,
+            "relationships_merged": 0,
+            "chunks_ingested": 0,
+            "errors": validation_errors,
+        }
+
+    result = await ingest_extracted_json(payload, storage_instances, global_config)
+    if result.get("status") == "partial_success":
+        result["status"] = "validation_failed"
+    return result
 
 
 @mcp.tool(

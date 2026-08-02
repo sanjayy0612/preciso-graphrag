@@ -188,14 +188,12 @@ async def _merge_nodes_then_upsert(
         )
         file_paths_list = []
         seen_paths = set()
-        has_placeholder = False
         max_file_paths = global_config.get("max_file_paths", DEFAULT_MAX_FILE_PATHS)
         file_path_placeholder = global_config.get(
             "file_path_more_placeholder", DEFAULT_FILE_PATH_MORE_PLACEHOLDER
         )
         for fp in already_file_paths:
             if fp and fp.startswith(f"...{file_path_placeholder}"):
-                has_placeholder = True
                 continue
             if fp and fp not in seen_paths:
                 file_paths_list.append(fp)
@@ -207,7 +205,6 @@ async def _merge_nodes_then_upsert(
                 seen_paths.add(file_path_item)
             await _cooperative_yield(i, every=32)
         if len(file_paths_list) > max_file_paths:
-            original_count_str = f"{len(file_paths_list)}+" if has_placeholder else str(len(file_paths_list))
             if limit_method == SOURCE_IDS_LIMIT_METHOD_FIFO:
                 file_paths_list = file_paths_list[-max_file_paths:]
                 file_paths_list.append(f"...{file_path_placeholder}...(FIFO)")
@@ -405,14 +402,12 @@ async def _merge_edges_then_upsert(
         )
         file_paths_list = []
         seen_paths = set()
-        has_placeholder = False
         max_file_paths = global_config.get("max_file_paths", DEFAULT_MAX_FILE_PATHS)
         file_path_placeholder = global_config.get(
             "file_path_more_placeholder", DEFAULT_FILE_PATH_MORE_PLACEHOLDER
         )
         for fp in already_file_paths:
             if fp and fp.startswith(f"...{file_path_placeholder}"):
-                has_placeholder = True
                 continue
             if fp and fp not in seen_paths:
                 file_paths_list.append(fp)
@@ -488,7 +483,6 @@ async def _merge_edges_then_upsert(
                         }
                     )
             else:
-                updated = False
                 existing_full_source_ids = []
                 if entity_chunks_storage is not None:
                     stored_chunks = await entity_chunks_storage.get_by_id(need_insert_id)
@@ -498,7 +492,6 @@ async def _merge_edges_then_upsert(
                     existing_full_source_ids = existing_node["source_id"].split(GRAPH_FIELD_SEP)
                 merged_full_source_ids = merge_source_ids(existing_full_source_ids, [chunk_id for chunk_id in source_ids if chunk_id])
                 if entity_chunks_storage is not None and merged_full_source_ids != existing_full_source_ids:
-                    updated = True
                     await entity_chunks_storage.upsert(
                         {need_insert_id: {"chunk_ids": merged_full_source_ids, "count": len(merged_full_source_ids)}}
                     )
@@ -510,7 +503,6 @@ async def _merge_edges_then_upsert(
                 )
                 limited_source_id_str = GRAPH_FIELD_SEP.join(limited_source_ids)
                 if limited_source_id_str != existing_node.get("source_id", ""):
-                    updated = True
                     updated_node_data = {**existing_node, "source_id": limited_source_id_str}
                     await knowledge_graph_inst.upsert_node(need_insert_id, node_data=updated_node_data)
                     if entity_vdb is not None:

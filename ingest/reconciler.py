@@ -9,7 +9,6 @@ Called by ingest_with_reconciliation MCP tool.
 
 import re
 import time
-from collections import defaultdict
 
 
 def _normalize(name: str) -> str:

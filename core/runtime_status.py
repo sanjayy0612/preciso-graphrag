@@ -40,11 +40,14 @@ def _build_embedding_status(global_config: dict[str, Any]) -> tuple[dict[str, An
     else:
         model = getattr(embedding_func, "model_name", None) or "unknown"
         dimension = getattr(embedding_func, "embedding_dim", None)
+        initialization_error = getattr(embedding_func, "initialization_error", None)
+        runtime_error = getattr(embedding_func, "runtime_error", None)
         if provider == "fallback" or model == "fallback":
             mode = "fallback"
             status = "degraded"
             warnings.append(
-                "Fallback embeddings are active; graph creation still works, but vector similarity quality is reduced."
+                "Deterministic lexical fallback embeddings are active; vector search works offline, "
+                "but retrieval quality is lower than with a semantic embedding provider."
             )
         elif provider in {"openai", "cohere"}:
             mode = "cloud"
@@ -68,6 +71,11 @@ def _build_embedding_status(global_config: dict[str, Any]) -> tuple[dict[str, An
             if not _detect_package("ollama"):
                 status = "degraded"
                 warnings.append("Ollama embeddings configured but the client is not installed.")
+        availability_error = runtime_error or initialization_error
+        if availability_error:
+            mode = "unavailable"
+            status = "degraded"
+            warnings.append(availability_error)
 
     return {
         "mode": mode,

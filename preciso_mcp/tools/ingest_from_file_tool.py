@@ -7,6 +7,7 @@ from typing import Any
 
 from ingest.parser import parse_markdown_extraction
 from ingest.pipeline import ingest_extracted_json
+from ingest.validator import validate_extraction_structure
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SUPPORTED_MARKDOWN_SUFFIXES = {".md", ".txt"}
@@ -72,7 +73,7 @@ async def _ingest_file(file_path: str, storage_instances: dict, global_config: d
             "message": str(exc),
         }
 
-    validation_errors = _validate_payload_structure(payload)
+    validation_errors = validate_extraction_structure(payload)
     if validation_errors:
         return {
             "status": "validation_failed",
@@ -85,14 +86,26 @@ async def _ingest_file(file_path: str, storage_instances: dict, global_config: d
 
     normalized_payload = _normalize_payload(payload, resolved_path)
     result = await ingest_extracted_json(normalized_payload, storage_instances, global_config)
+    ingestion_counts = result.get("ingestion_counts") or {}
+    entity_counts = ingestion_counts.get("entities") or {}
+    relationship_counts = ingestion_counts.get("relationships") or {}
+    chunk_counts = ingestion_counts.get("chunks") or {}
 
     response = {
         "status": result.get("status", "error"),
         "file_path": str(file_path),
-        "entities_added": int(result.get("entities_merged", 0) or 0),
-        "relationships_added": int(result.get("relationships_merged", 0) or 0),
-        "chunks_stored": int(result.get("chunks_ingested", 0) or 0),
+        "entities_added": int(
+            entity_counts.get("added", result.get("entities_merged", 0)) or 0
+        ),
+        "relationships_added": int(
+            relationship_counts.get("added", result.get("relationships_merged", 0)) or 0
+        ),
+        "chunks_stored": int(
+            chunk_counts.get("added", result.get("chunks_ingested", 0)) or 0
+        ),
     }
+    if ingestion_counts:
+        response["ingestion_counts"] = ingestion_counts
     if "message" in result:
         response["message"] = result["message"]
     if result.get("summary_events"):
@@ -134,24 +147,6 @@ def _load_payload(resolved_path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("parsed payload must be a JSON object")
     return payload
-
-
-def _validate_payload_structure(payload: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    for field in ("document_id", "entities", "relationships", "chunks"):
-        if field not in payload:
-            errors.append(f"missing required field `{field}`")
-
-    if "document_id" in payload and not str(payload.get("document_id", "")).strip():
-        errors.append("`document_id` must be a non-empty string")
-    if "entities" in payload and not isinstance(payload.get("entities"), list):
-        errors.append("`entities` must be a list")
-    if "relationships" in payload and not isinstance(payload.get("relationships"), list):
-        errors.append("`relationships` must be a list")
-    if "chunks" in payload and not isinstance(payload.get("chunks"), list):
-        errors.append("`chunks` must be a list")
-
-    return errors
 
 
 def _normalize_payload(payload: dict[str, Any], resolved_path: Path) -> dict[str, Any]:

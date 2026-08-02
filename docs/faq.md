@@ -101,7 +101,8 @@ Error: Cannot find module 'mcp' or command 'mcp_launcher.sh' not found
    python3 -m preciso_mcp.server
    ```
 
-If it still fails, check that `scripts/mcp_launcher.sh` is executable:
+If it still fails, restore the launcher executable bit if your archive or
+filesystem removed it:
 ```bash
 chmod +x scripts/mcp_launcher.sh
 ```

@@ -135,6 +135,47 @@ async def test_query_path_vector_ranks_ingested_evidence_with_one_global_cap(sto
 
 
 @pytest.mark.asyncio
+async def test_fallback_embeddings_support_offline_vector_retrieval(storage_stack):
+    storage_instances, global_config, _ = storage_stack
+    global_config["kg_evidence_min_similarity"] = 0.1
+    payload = {
+        "document_id": "doc_fallback_retrieval",
+        "chunks": [
+            {
+                "chunk_id": "chunk-1",
+                "content": "ACME manufactures industrial pumps for water treatment.",
+            }
+        ],
+        "entities": [
+            {
+                "entity_name": "ACME",
+                "entity_type": "ORG",
+                "description": "ACME manufactures industrial pumps.",
+                "source_id": "chunk-1",
+            }
+        ],
+        "relationships": [],
+    }
+    ingest_result = await ingest_extracted_json(payload, storage_instances, global_config)
+    assert ingest_result["status"] == "success"
+
+    result = await kg_query(
+        query="Which company manufactures industrial pumps?",
+        knowledge_graph_inst=storage_instances["graph"],
+        entities_vdb=storage_instances["entities_vdb"],
+        relationships_vdb=storage_instances["relationships_vdb"],
+        text_chunks_db=storage_instances["text_chunks"],
+        query_param=QueryParam(mode="local", only_need_context=True, ll_keywords=["ACME"]),
+        global_config=global_config,
+        chunks_vdb=storage_instances["chunks_vdb"],
+    )
+
+    assert [chunk["chunk_id"] for chunk in result.raw_data["data"]["chunks"]] == [
+        "doc_fallback_retrieval::chunk-1"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_query_path_fails_closed_instead_of_falling_back_when_vector_is_missing(
     storage_stack,
 ):

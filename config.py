@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import logging
+import math
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -191,7 +194,28 @@ PROMPTS = {
 
 
 async def _fallback_embed(texts, **kwargs):
-    return [[0.0] * 8 for _ in texts]
+    """Return deterministic lexical embeddings for offline/test operation.
+
+    This is intentionally small and dependency-free, but unlike the former
+    all-zero placeholder it preserves token overlap so cosine search remains
+    functional when no external embedding provider is configured.
+    """
+    if not isinstance(texts, list):
+        texts = [texts]
+
+    embeddings: list[list[float]] = []
+    for text in texts:
+        vector = [0.0] * 8
+        tokens = re.findall(r"[a-z0-9]+", str(text).lower())
+        for token in tokens:
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=1).digest()
+            index = digest[0] % len(vector)
+            vector[index] += 1.0
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm:
+            vector = [value / norm for value in vector]
+        embeddings.append(vector)
+    return embeddings
 
 
 async def _ollama_embed(texts: list[str], **kwargs) -> list[list[float]]:
@@ -261,6 +285,7 @@ def build_default_embedding_func() -> Any:
         # Try to auto-detect embedding dimension from the Ollama model.
         # If detection fails, fall back to the configured default.
         detected_dim = DEFAULT_EMBEDDING_DIM
+        initialization_error = None
         try:
             import asyncio
 
@@ -291,7 +316,10 @@ def build_default_embedding_func() -> Any:
                     DEFAULT_EMBEDDING_MODEL,
                     DEFAULT_EMBEDDING_DIM,
                 )
-        except Exception:
+        except Exception as exc:
+            initialization_error = (
+                f"Ollama embedding probe failed for model {DEFAULT_EMBEDDING_MODEL}: {exc}"
+            )
             logger.exception(
                 "Ollama embedding-dimension probe failed for model %s (is Ollama running?); "
                 "using default embedding_dim=%d — if the model's real dimension differs, "
@@ -306,6 +334,7 @@ def build_default_embedding_func() -> Any:
             max_token_size=DEFAULT_EMBEDDING_MAX_TOKENS,
             func=_ollama_embed,
             model_name=DEFAULT_EMBEDDING_MODEL,
+            initialization_error=initialization_error,
         )
     if provider == "openai":
         return EmbeddingFunc(

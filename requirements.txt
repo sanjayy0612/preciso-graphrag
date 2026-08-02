@@ -1,10 +1,7 @@
 mcp>=1.0.0
-openai>=1.0.0
 python-dotenv>=1.0.0
 networkx>=3.0
 numpy>=1.24.0
 nano-vectordb>=0.0.4
 tiktoken>=0.5.0
 ollama>=0.1.0
-neo4j>=5.0.0
-qdrant-client>=1.9.0

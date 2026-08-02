@@ -11,13 +11,97 @@ from core.runtime_status import update_artifact_manifest
 from core.session_lock import ingestion_session_lock
 from core.storage.shared_storage import get_storage_keyed_lock
 from core.storage.vector_write_batch import VectorWriteBatch
-from core.utils import compute_mdhash_id, logger, safe_vdb_operation_with_exception
+from core.utils import (
+    compute_mdhash_id,
+    logger,
+    make_relation_chunk_key,
+    safe_vdb_operation_with_exception,
+    split_source_ids,
+)
 from ingest.transformer import (
     agent_json_to_edges_data,
     agent_json_to_nodes_data,
     namespace_source_id,
 )
 from ingest.validator import validate_entity, validate_relationship
+
+
+def _new_source_ids(records: list[dict[str, Any]]) -> set[str]:
+    return set(split_source_ids(record.get("source_id", "") for record in records))
+
+
+async def _classify_graph_inputs(
+    graph,
+    entity_chunks,
+    relation_chunks,
+    grouped_nodes: dict[str, list[dict[str, Any]]],
+    grouped_edges: dict[tuple[str, str], list[dict[str, Any]]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Classify graph inputs without changing the legacy processed totals."""
+    entity_counts = {"added": 0, "merged": 0, "skipped_duplicate": 0}
+    relationship_counts = {"added": 0, "merged": 0, "skipped_duplicate": 0}
+
+    existing_nodes = await graph.get_nodes_batch(list(grouped_nodes))
+    entity_chunk_rows = (
+        await entity_chunks.get_by_ids(list(grouped_nodes)) if entity_chunks is not None else []
+    )
+    for index, (entity_name, records) in enumerate(grouped_nodes.items()):
+        existing_node = existing_nodes.get(entity_name)
+        if existing_node is None:
+            entity_counts["added"] += 1
+            continue
+        stored = entity_chunk_rows[index] if entity_chunk_rows else None
+        prior_sources = set(
+            split_source_ids(
+                (stored or {}).get("chunk_ids", [])
+                or (existing_node.get("source_id", ""),)
+            )
+        )
+        if _new_source_ids(records).issubset(prior_sources):
+            entity_counts["skipped_duplicate"] += 1
+        else:
+            entity_counts["merged"] += 1
+
+    edge_pairs = [{"src": src, "tgt": tgt} for src, tgt in grouped_edges]
+    existing_edges = await graph.get_edges_batch(edge_pairs)
+    relation_keys = [make_relation_chunk_key(src, tgt) for src, tgt in grouped_edges]
+    relation_chunk_rows = (
+        await relation_chunks.get_by_ids(relation_keys) if relation_chunks is not None else []
+    )
+    for index, (edge, records) in enumerate(grouped_edges.items()):
+        existing_edge = existing_edges.get(edge)
+        if existing_edge is None:
+            relationship_counts["added"] += 1
+            continue
+        stored = relation_chunk_rows[index] if relation_chunk_rows else None
+        prior_sources = set(
+            split_source_ids(
+                (stored or {}).get("chunk_ids", [])
+                or (existing_edge.get("source_id", ""),)
+            )
+        )
+        if _new_source_ids(records).issubset(prior_sources):
+            relationship_counts["skipped_duplicate"] += 1
+        else:
+            relationship_counts["merged"] += 1
+
+    return entity_counts, relationship_counts
+
+
+def _classify_chunk_inputs(
+    chunk_upserts: dict[str, dict[str, Any]],
+    existing_chunks: list[dict[str, Any] | None],
+) -> dict[str, int]:
+    counts = {"added": 0, "merged": 0, "skipped_duplicate": 0}
+    stable_fields = ("content", "full_doc_id", "chunk_order_index", "file_path")
+    for record, existing in zip(chunk_upserts.values(), existing_chunks):
+        if existing is None:
+            counts["added"] += 1
+        elif all(existing.get(field) == record.get(field) for field in stable_fields):
+            counts["skipped_duplicate"] += 1
+        else:
+            counts["merged"] += 1
+    return counts
 
 
 async def ingest_extracted_json(payload, storage_instances, global_config) -> dict:
@@ -136,6 +220,8 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                     "file_path": chunk_record["file_path"],
                     "chunk_id": part_id,
                 }
+        existing_chunks = await text_chunks.get_by_ids(list(chunk_upserts))
+        chunk_counts = _classify_chunk_inputs(chunk_upserts, existing_chunks)
         if chunk_upserts:
             await safe_vdb_operation_with_exception(
                 operation=lambda payload=chunk_vdb_upserts: chunks_vdb.upsert(payload),
@@ -236,6 +322,14 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             )
             grouped_edges[(src_id, tgt_id)].extend(edge_list)
 
+        entity_counts, relationship_counts = await _classify_graph_inputs(
+            graph,
+            entity_chunks,
+            relation_chunks,
+            grouped_nodes,
+            grouped_edges,
+        )
+
         pipeline_status = {"summary_events": []}
         merged_nodes = []
         for entity_name, node_list in grouped_nodes.items():
@@ -310,6 +404,11 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             "chunks_ingested": len(chunk_upserts),
             "entities_merged": len(merged_nodes),
             "relationships_merged": len(merged_edges),
+            "ingestion_counts": {
+                "entities": entity_counts,
+                "relationships": relationship_counts,
+                "chunks": chunk_counts,
+            },
             "errors": errors,
             "warnings": warnings,
         }

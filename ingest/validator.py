@@ -1,6 +1,29 @@
 from __future__ import annotations
 
+from typing import Any
+
 from config import GRAPH_FIELD_SEP
+
+
+def validate_extraction_structure(payload: Any) -> list[str]:
+    """Validate the required top-level shape shared by all ingestion APIs."""
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        return ["payload must be an object"]
+
+    for field in ("document_id", "entities", "relationships", "chunks"):
+        if field not in payload:
+            errors.append(f"missing required field `{field}`")
+
+    if "document_id" in payload and not str(payload.get("document_id", "")).strip():
+        errors.append("`document_id` must be a non-empty string")
+    if "entities" in payload and not isinstance(payload.get("entities"), list):
+        errors.append("`entities` must be a list")
+    if "relationships" in payload and not isinstance(payload.get("relationships"), list):
+        errors.append("`relationships` must be a list")
+    if "chunks" in payload and not isinstance(payload.get("chunks"), list):
+        errors.append("`chunks` must be a list")
+    return errors
 
 
 def _unresolvable_source_ids(source_id: str, resolvable_source_ids: set[str]) -> list[str]:

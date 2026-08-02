@@ -191,7 +191,7 @@ evals/              ← benchmark test cases and results
 | Research | `skills/Research-paper-graph-extraction-skill/SKILL.md` | Research papers, scientific literature, academic corpora |
 | General | `skills/General-graph-extraction-skill/SKILL.md` | Codebases, READMEs, wikis, internal docs |
 | Reconciliation | `skills/Reconciliation-Subagent-Skill/SKILL.md` | Cleanup of existing extraction JSON only |
-| Eval | `skills/Eval-Skill/SKILL.md` | Evaluating a built graph — not for extraction |
+| Eval | `evals/SKILL.md` | Evaluating a built graph — not for extraction |
 
 ---
 

@@ -158,6 +158,16 @@ async def test_identical_recovery_replay_is_idempotent(storage_stack):
     assert node_after["source_id"] == node_before["source_id"]
     assert edge_after["weight"] == edge_before["weight"]
     assert edge_after["source_id"] == edge_before["source_id"]
+    assert first["ingestion_counts"] == {
+        "entities": {"added": 2, "merged": 0, "skipped_duplicate": 0},
+        "relationships": {"added": 1, "merged": 0, "skipped_duplicate": 0},
+        "chunks": {"added": 2, "merged": 0, "skipped_duplicate": 0},
+    }
+    assert second["ingestion_counts"] == {
+        "entities": {"added": 0, "merged": 0, "skipped_duplicate": 2},
+        "relationships": {"added": 0, "merged": 0, "skipped_duplicate": 1},
+        "chunks": {"added": 0, "merged": 0, "skipped_duplicate": 2},
+    }
 
 
 async def test_invalid_entity_reported_as_partial_success(storage_stack):

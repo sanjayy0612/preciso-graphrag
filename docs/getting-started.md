@@ -9,11 +9,12 @@
 ## Step 1: Clone and install
 
 ```bash
-git clone https://github.com/yourusername/preciso-graphrag
+git clone https://github.com/Preciso-GR/preciso-graphrag.git
 cd preciso-graphrag
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Step 2: Drop a document
@@ -118,7 +119,7 @@ These exports are optional. Skip this section unless you need to share your grap
 Install the extra packages if you plan to export:
 
 ```bash
-pip install neo4j qdrant-client
+pip install -e '.[exports]'
 ```
 
 ### Configure `.env`

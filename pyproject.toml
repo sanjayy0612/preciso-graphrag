@@ -6,8 +6,18 @@ build-backend = "setuptools.build_meta"
 name = "preciso-graphrag"
 version = "0.1.0"
 description = "Local-first GraphRAG system exposed as an MCP server"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+cloud-embeddings = ["openai>=1.0.0", "cohere>=4.0.0"]
+exports = ["neo4j>=5.0.0", "qdrant-client>=1.9.0"]
+all = [
+    "openai>=1.0.0",
+    "cohere>=4.0.0",
+    "neo4j>=5.0.0",
+    "qdrant-client>=1.9.0",
+]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }
@@ -19,3 +29,9 @@ py-modules = ["config"]
 # Only the importable code: the local MCP package is preciso_mcp so it can
 # never shadow the MCP SDK's `mcp` package again.
 include = ["core*", "ingest*", "preciso_mcp*"]
+
+[tool.ruff.lint.per-file-ignores]
+# These entry-point files deliberately adjust sys.path before importing the
+# project so they also work from a source checkout without an editable install.
+"test/*_manual.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
