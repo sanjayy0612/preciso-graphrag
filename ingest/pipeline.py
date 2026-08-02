@@ -8,6 +8,7 @@ from typing import Any
 from config import GRAPH_FIELD_SEP
 from core.merge import _merge_edges_then_upsert, _merge_nodes_then_upsert
 from core.runtime_status import update_artifact_manifest
+from core.session_lock import ingestion_session_lock
 from core.storage.shared_storage import get_storage_keyed_lock
 from core.utils import compute_mdhash_id, logger, safe_vdb_operation_with_exception
 from ingest.transformer import (
@@ -19,6 +20,14 @@ from ingest.validator import validate_entity, validate_relationship
 
 
 async def ingest_extracted_json(payload, storage_instances, global_config) -> dict:
+    if not isinstance(payload, dict):
+        return {"status": "error", "message": "payload must be an object"}
+    workspace = getattr(storage_instances.get("graph"), "workspace", "")
+    async with ingestion_session_lock(global_config["working_dir"], workspace):
+        return await _ingest_extracted_json(payload, storage_instances, global_config)
+
+
+async def _ingest_extracted_json(payload, storage_instances, global_config) -> dict:
     try:
         if not isinstance(payload, dict):
             return {"status": "error", "message": "payload must be an object"}

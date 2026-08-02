@@ -16,6 +16,10 @@ _data_init_lock = asyncio.Lock()
 @dataclass
 class UpdateFlag:
     value: bool = False
+    # ``value`` remains for JsonKVStorage's write-dirty semantics.  A revision
+    # is needed by storage instances that each keep their own in-memory copy:
+    # a boolean notification can be consumed by only one sibling reader.
+    revision: int = 0
 
 
 def initialize_share_data() -> None:
@@ -61,6 +65,7 @@ async def set_all_update_flags(
 ) -> None:
     flag = await get_update_flag(namespace, workspace, working_dir)
     flag.value = True
+    flag.revision += 1
 
 
 async def clear_all_update_flags(

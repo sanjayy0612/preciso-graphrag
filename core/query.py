@@ -268,6 +268,11 @@ async def kg_query(
         global_config.get(
             "kg_evidence_min_similarity", DEFAULT_KG_EVIDENCE_MIN_SIMILARITY
         ),
+        # The response depends on the fully rendered prompt, which includes
+        # both the selected graph context and any custom system-prompt template.
+        # History is a separate model input and must therefore also be keyed.
+        sys_prompt,
+        json.dumps(query_param.conversation_history, ensure_ascii=False, sort_keys=True),
     )
     cached_result = await handle_cache(
         hashing_kv, args_hash, query, query_param.mode, cache_type="query"

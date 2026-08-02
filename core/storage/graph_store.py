@@ -44,21 +44,23 @@ class NetworkXStorage(BaseGraphStorage):
         self._graphml_xml_file = os.path.join(workspace_dir, f"graph_{self.namespace}.graphml")
         self._storage_lock = None
         self.storage_updated = None
+        self._last_seen_revision = 0
         self._graph = self.load_nx_graph(self._graphml_xml_file) or nx.Graph()
 
     async def initialize(self):
         self.storage_updated = await get_update_flag(
             self.namespace, workspace=self.workspace, working_dir=self._working_dir
         )
+        self._last_seen_revision = self.storage_updated.revision
         self._storage_lock = get_namespace_lock(
             self.namespace, workspace=self.workspace, working_dir=self._working_dir
         )
 
     async def _get_graph(self):
         async with self._storage_lock:
-            if self.storage_updated.value:
+            if self.storage_updated.revision != self._last_seen_revision:
                 self._graph = self.load_nx_graph(self._graphml_xml_file) or nx.Graph()
-                self.storage_updated.value = False
+                self._last_seen_revision = self.storage_updated.revision
             return self._graph
 
     async def has_node(self, node_id: str) -> bool:
@@ -205,7 +207,9 @@ class NetworkXStorage(BaseGraphStorage):
             await set_all_update_flags(
                 self.namespace, workspace=self.workspace, working_dir=self._working_dir
             )
-            self.storage_updated.value = False
+            # This writer already owns the just-persisted graph.  Other storage
+            # instances observe the new revision and reload on their next read.
+            self._last_seen_revision = self.storage_updated.revision
 
     async def drop(self) -> dict[str, str]:
         try:

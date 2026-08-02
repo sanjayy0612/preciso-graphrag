@@ -29,6 +29,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
         self._client = None
         self._storage_lock = None
         self.storage_updated = None
+        self._last_seen_revision = 0
         kwargs = self.global_config.get("vector_db_storage_cls_kwargs", {})
         cosine_threshold = kwargs.get("cosine_better_than_threshold")
         if cosine_threshold is None:
@@ -70,18 +71,19 @@ class NanoVectorDBStorage(BaseVectorStorage):
         self.storage_updated = await get_update_flag(
             self.namespace, workspace=self.workspace, working_dir=self._working_dir
         )
+        self._last_seen_revision = self.storage_updated.revision
         self._storage_lock = get_namespace_lock(
             self.namespace, workspace=self.workspace, working_dir=self._working_dir
         )
 
     async def _get_client(self):
         async with self._storage_lock:
-            if self.storage_updated.value:
+            if self.storage_updated.revision != self._last_seen_revision:
                 self._client = NanoVectorDB(
                     self.embedding_func.embedding_dim,
                     storage_file=self._client_file_name,
                 )
-                self.storage_updated.value = False
+                self._last_seen_revision = self.storage_updated.revision
             return self._client
 
     async def upsert(self, data: dict[str, dict[str, Any]]) -> None:
@@ -165,7 +167,9 @@ class NanoVectorDBStorage(BaseVectorStorage):
                 await set_all_update_flags(
                     self.namespace, workspace=self.workspace, working_dir=self._working_dir
                 )
-                self.storage_updated.value = False
+                # Keep the update visible to every sibling instance.  This
+                # instance has the current client, so only advance its cursor.
+                self._last_seen_revision = self.storage_updated.revision
                 return True
             except Exception as exc:
                 logger.error("[%s] Error saving data for %s: %s", self.workspace, self.namespace, exc)
