@@ -10,6 +10,7 @@ from core.merge import _merge_edges_then_upsert, _merge_nodes_then_upsert
 from core.runtime_status import update_artifact_manifest
 from core.session_lock import ingestion_session_lock
 from core.storage.shared_storage import get_storage_keyed_lock
+from core.storage.vector_write_batch import VectorWriteBatch
 from core.utils import compute_mdhash_id, logger, safe_vdb_operation_with_exception
 from ingest.transformer import (
     agent_json_to_edges_data,
@@ -49,6 +50,8 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
         entity_chunks = storage_instances.get("entity_chunks")
         relation_chunks = storage_instances.get("relation_chunks")
         pending_summaries = storage_instances.get("pending_summaries")
+        entity_vector_batch = VectorWriteBatch(entities_vdb)
+        relationship_vector_batch = VectorWriteBatch(relationships_vdb)
         errors: list[str] = []
         warnings: list[str] = []
         strict_source_ids = os.getenv("GRAPHRAG_STRICT_SOURCE_IDS", "false").strip().lower() == "true"
@@ -241,7 +244,7 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                     entity_name=entity_name,
                     nodes_data=node_list,
                     knowledge_graph_inst=graph,
-                    entity_vdb=entities_vdb,
+                    entity_vdb=entity_vector_batch,
                     global_config=global_config,
                     pipeline_status=pipeline_status,
                     entity_chunks_storage=entity_chunks,
@@ -259,8 +262,8 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                     tgt_id=tgt_id,
                     edges_data=edge_list,
                     knowledge_graph_inst=graph,
-                    relationships_vdb=relationships_vdb,
-                    entity_vdb=entities_vdb,
+                    relationships_vdb=relationship_vector_batch,
+                    entity_vdb=entity_vector_batch,
                     global_config=global_config,
                     pipeline_status=pipeline_status,
                     relation_chunks_storage=relation_chunks,
@@ -269,6 +272,21 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                 )
                 if edge_data is not None:
                     merged_edges.append(edge_data)
+
+        await safe_vdb_operation_with_exception(
+            operation=entity_vector_batch.flush,
+            operation_name="entity_batch_upsert",
+            entity_name=document_id,
+            max_retries=3,
+            retry_delay=0.1,
+        )
+        await safe_vdb_operation_with_exception(
+            operation=relationship_vector_batch.flush,
+            operation_name="relationship_batch_upsert",
+            entity_name=document_id,
+            max_retries=3,
+            retry_delay=0.2,
+        )
 
         await text_chunks.index_done_callback()
         await chunks_vdb.index_done_callback()

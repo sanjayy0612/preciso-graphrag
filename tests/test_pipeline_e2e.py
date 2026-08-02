@@ -13,6 +13,23 @@ from core.utils import compute_mdhash_id, logger as graphrag_logger
 from ingest.pipeline import ingest_extracted_json
 
 
+class RecordingVectorStore:
+    """Minimal vector adapter that records write batch sizes."""
+
+    def __init__(self):
+        self.upsert_calls: list[dict[str, dict]] = []
+        self.delete_calls: list[list[str]] = []
+
+    async def upsert(self, payload):
+        self.upsert_calls.append(copy.deepcopy(payload))
+
+    async def delete(self, ids):
+        self.delete_calls.append(list(ids))
+
+    async def index_done_callback(self):
+        pass
+
+
 def make_payload() -> dict:
     return {
         "document_id": "doc_e2e",
@@ -47,6 +64,51 @@ def make_payload() -> dict:
             }
         ],
     }
+
+
+async def test_ingest_batches_entity_and_relationship_vector_writes(storage_stack):
+    storage_instances, global_config, _ = storage_stack
+    entity_vectors = RecordingVectorStore()
+    relationship_vectors = RecordingVectorStore()
+    storage_instances["entities_vdb"] = entity_vectors
+    storage_instances["relationships_vdb"] = relationship_vectors
+    payload = {
+        "document_id": "doc_vector_batching",
+        "file_path": "doc_vector_batching.md",
+        "chunks": [
+            {"chunk_id": f"chunk-{index}", "content": f"Evidence {index}."}
+            for index in range(1, 4)
+        ],
+        "entities": [
+            {
+                "entity_name": name,
+                "entity_type": "ORG",
+                "description": f"{name} description.",
+                "source_id": "chunk-1",
+            }
+            for name in ("ALPHA", "BETA", "GAMMA", "DELTA")
+        ],
+        "relationships": [
+            {
+                "src_id": src,
+                "tgt_id": tgt,
+                "description": f"{src} relates to {tgt}.",
+                "source_id": source_id,
+            }
+            for src, tgt, source_id in (
+                ("ALPHA", "BETA", "chunk-1"),
+                ("BETA", "GAMMA", "chunk-2"),
+                ("GAMMA", "DELTA", "chunk-3"),
+            )
+        ],
+    }
+
+    result = await ingest_extracted_json(payload, storage_instances, global_config)
+
+    assert result["status"] == "success", result
+    assert [len(call) for call in entity_vectors.upsert_calls] == [4]
+    assert [len(call) for call in relationship_vectors.upsert_calls] == [3]
+    assert [len(call) for call in relationship_vectors.delete_calls] == [6]
 
 
 async def test_ingest_success_and_artifacts_written(storage_stack):
