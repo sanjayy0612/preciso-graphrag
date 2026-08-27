@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 # Run as `python -m preciso_mcp.server` from the repo root, or after
@@ -11,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from config import build_default_embedding_func, build_global_config
 from core.bootstrap import build_storage_instances, initialize_storage_instances
 from core.query import kg_query
+from core.profiles import SUPPLY_CHAIN_WORKSPACE
 from core.runtime_status import update_artifact_manifest
 from core.storage.base import QueryParam
 from core.utils import BasicTokenizer, logger
@@ -32,6 +34,10 @@ global_config = build_global_config(
 # Populated by initialize_runtime(). Must stay the same dict object: every tool
 # closure below captures this name, so it is mutated in place, never rebound.
 storage_instances: dict = {}
+# Non-default workspaces are created lazily.  The default runtime remains the
+# existing finance/general workspace, so legacy tool calls are unchanged.
+workspace_storage_instances: dict[str, dict] = {}
+workspace_initialization_lock = asyncio.Lock()
 mcp = FastMCP("graphrag-mcp")
 
 
@@ -49,12 +55,34 @@ def initialize_runtime() -> None:
     storage_instances.update(build_storage_instances(global_config))
 
 
+async def _get_workspace_storage_instances(workspace: str | None) -> dict:
+    """Return isolated storage for a configured workspace.
+
+    Profiles are a server-side contract: callers select a workspace, not an
+    arbitrary profile name in their extraction payload.
+    """
+    workspace_name = (workspace or "").strip()
+    if not workspace_name:
+        return storage_instances
+    if workspace_name != SUPPLY_CHAIN_WORKSPACE:
+        raise ValueError(f"Unknown workspace `{workspace_name}`")
+    async with workspace_initialization_lock:
+        existing = workspace_storage_instances.get(workspace_name)
+        if existing is not None:
+            return existing
+        instances = build_storage_instances(global_config, workspace=workspace_name)
+        await initialize_storage_instances(instances)
+        workspace_storage_instances[workspace_name] = instances
+        return instances
+
+
 @mcp.tool(
     name="get_server_status",
     description="Return the current MCP runtime status and local graph health summary.",
 )
-async def get_server_status_tool() -> dict:
-    return await get_server_status(storage_instances, global_config)
+async def get_server_status_tool(workspace: Literal["supply_chain"] | None = None) -> dict:
+    instances = await _get_workspace_storage_instances(workspace)
+    return await get_server_status(instances, global_config)
 
 
 @mcp.tool(
@@ -103,7 +131,10 @@ async def export_vectors_to_qdrant_tool(
 
 
 @mcp.tool()
-async def ingest_graph_tool(payload: dict) -> dict:
+async def ingest_graph_tool(
+    payload: dict,
+    workspace: Literal["supply_chain"] | None = None,
+) -> dict:
     """
     TOOL: ingest_graph_tool
     
@@ -154,7 +185,8 @@ async def ingest_graph_tool(payload: dict) -> dict:
             "errors": validation_errors,
         }
 
-    result = await ingest_extracted_json(payload, storage_instances, global_config)
+    instances = await _get_workspace_storage_instances(workspace)
+    result = await ingest_extracted_json(payload, instances, global_config)
     if result.get("status") == "partial_success":
         result["status"] = "validation_failed"
     return result
@@ -164,7 +196,10 @@ async def ingest_graph_tool(payload: dict) -> dict:
     name="ingest_from_file",
     description="Add a reviewed extraction file to the graph. Ingestion is additive, not replacement.",
 )
-async def ingest_from_file_tool(file_path: str) -> dict:
+async def ingest_from_file_tool(
+    file_path: str,
+    workspace: Literal["supply_chain"] | None = None,
+) -> dict:
     """
     TOOL: ingest_from_file
     
@@ -212,14 +247,18 @@ async def ingest_from_file_tool(file_path: str) -> dict:
         → Used after agent calls: ingest_from_file("extractions/document_extracted.json")
         → Calls: ingest/pipeline.py → ingest_extracted_json()
     """
-    return await ingest_from_file(file_path, storage_instances, global_config)
+    instances = await _get_workspace_storage_instances(workspace)
+    return await ingest_from_file(file_path, instances, global_config)
 
 
 @mcp.tool(
     name="reingest_from_file",
     description="Replay the identical extraction after an operational failure. Never use for correction or replacement.",
 )
-async def reingest_from_file_tool(file_path: str) -> dict:
+async def reingest_from_file_tool(
+    file_path: str,
+    workspace: Literal["supply_chain"] | None = None,
+) -> dict:
     """
     TOOL: reingest_from_file
     
@@ -269,11 +308,15 @@ async def reingest_from_file_tool(file_path: str) -> dict:
         - reingest_from_file: Identical recovery replay (same internal logic, different intent)
         Internally: Both call _ingest_file() with same logic
     """
-    return await reingest_from_file(file_path, storage_instances, global_config)
+    instances = await _get_workspace_storage_instances(workspace)
+    return await reingest_from_file(file_path, instances, global_config)
 
 
 @mcp.tool()
-async def ingest_with_reconciliation_tool(extraction_files: list[str]) -> dict:
+async def ingest_with_reconciliation_tool(
+    extraction_files: list[str],
+    workspace: Literal["supply_chain"] | None = None,
+) -> dict:
     """
     Reconcile multiple subagent extraction files and ingest
     as a single unified knowledge graph.
@@ -288,9 +331,10 @@ async def ingest_with_reconciliation_tool(extraction_files: list[str]) -> dict:
         status, unified_file path, counts of entities/relationships added,
         reconciliation stats showing how many duplicates were merged
     """
+    instances = await _get_workspace_storage_instances(workspace)
     return await ingest_with_reconciliation(
         extraction_files=extraction_files,
-        storage_instances=storage_instances,
+        storage_instances=instances,
         global_config=global_config,
     )
 
@@ -362,6 +406,7 @@ async def ingest_checkpoint_tool(payload: dict) -> dict:
 async def query_graph_tool(
     query: str,
     mode: Literal["local", "global", "hybrid", "naive", "mix", "bypass"] = "mix",
+    workspace: Literal["supply_chain"] | None = None,
 ) -> dict:
     """
     TOOL: query_graph_tool
@@ -432,16 +477,17 @@ async def query_graph_tool(
         → Uses: storage_instances["text_chunks"] (KV lookup)
     """
     try:
+        instances = await _get_workspace_storage_instances(workspace)
         result = await kg_query(
             query=query,
-            knowledge_graph_inst=storage_instances["graph"],
-            entities_vdb=storage_instances["entities_vdb"],
-            relationships_vdb=storage_instances["relationships_vdb"],
-            text_chunks_db=storage_instances["text_chunks"],
+            knowledge_graph_inst=instances["graph"],
+            entities_vdb=instances["entities_vdb"],
+            relationships_vdb=instances["relationships_vdb"],
+            text_chunks_db=instances["text_chunks"],
             query_param=QueryParam(mode=mode, include_references=True),
             global_config=global_config,
-            hashing_kv=storage_instances.get("llm_cache"),
-            chunks_vdb=storage_instances["chunks_vdb"],
+            hashing_kv=instances.get("llm_cache"),
+            chunks_vdb=instances["chunks_vdb"],
         )
         if result is None:
             return {"status": "success", "message": "no results", "data": {}}
