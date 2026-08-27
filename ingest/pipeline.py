@@ -24,6 +24,7 @@ from ingest.transformer import (
     namespace_source_id,
 )
 from ingest.validator import validate_entity, validate_relationship
+from core.profiles import resolve_dataset_profile, validate_profile_records
 
 
 def _new_source_ids(records: list[dict[str, Any]]) -> set[str]:
@@ -138,7 +139,11 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
         relationship_vector_batch = VectorWriteBatch(relationships_vdb)
         errors: list[str] = []
         warnings: list[str] = []
-        strict_source_ids = os.getenv("GRAPHRAG_STRICT_SOURCE_IDS", "false").strip().lower() == "true"
+        profile = resolve_dataset_profile(global_config, getattr(graph, "workspace", ""))
+        strict_source_ids = (
+            profile.strict_source_ids
+            or os.getenv("GRAPHRAG_STRICT_SOURCE_IDS", "false").strip().lower() == "true"
+        )
 
         max_chunk_tokens = global_config.get("embedding_token_limit")
         if max_chunk_tokens is None:
@@ -220,27 +225,6 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                     "file_path": chunk_record["file_path"],
                     "chunk_id": part_id,
                 }
-        existing_chunks = await text_chunks.get_by_ids(list(chunk_upserts))
-        chunk_counts = _classify_chunk_inputs(chunk_upserts, existing_chunks)
-        if chunk_upserts:
-            await safe_vdb_operation_with_exception(
-                operation=lambda payload=chunk_vdb_upserts: chunks_vdb.upsert(payload),
-                operation_name="chunk_upsert",
-                entity_name=document_id,
-            )
-            indexed_vectors = await chunks_vdb.get_vectors_by_ids(list(chunk_vdb_upserts))
-            missing_vector_ids = [
-                vector_id for vector_id in chunk_vdb_upserts if vector_id not in indexed_vectors
-            ]
-            if missing_vector_ids:
-                raise RuntimeError(
-                    f"chunk vector integrity check failed for document `{document_id}`: "
-                    f"{len(missing_vector_ids)} vector(s) missing after upsert"
-                )
-            # Persist chunk text only after its vector is known to exist. This
-            # prevents graph evidence from citing text that cannot be ranked.
-            await text_chunks.upsert(chunk_upserts)
-
         def normalize_source_id(record: dict) -> dict:
             normalized = dict(record)
             normalized["source_id"] = namespace_source_id(
@@ -262,8 +246,56 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             for chunk_id in str(record.get("source_id", "")).split(GRAPH_FIELD_SEP)
             if chunk_id
         }
-        unresolved_chunk_ids = await text_chunks.filter_keys(cited_chunk_ids)
+        # Supply-chain profiles are validated before writing any chunks, vectors,
+        # nodes, or edges.  New chunks in this payload are already resolvable;
+        # referenced historical chunks must exist in the current workspace.
+        unresolved_chunk_ids = await text_chunks.filter_keys(cited_chunk_ids - set(chunk_upserts))
         resolvable_chunk_ids = cited_chunk_ids - unresolved_chunk_ids
+
+        profile_errors = validate_profile_records(
+            profile,
+            normalized_entities,
+            normalized_relationships,
+            resolvable_source_ids=resolvable_chunk_ids,
+        )
+        if profile_errors:
+            return {
+                "status": "validation_failed",
+                "message": f"Profile validation failed for document `{document_id}`",
+                "document_id": document_id,
+                "file_path": file_path,
+                "chunks_ingested": 0,
+                "entities_merged": 0,
+                "relationships_merged": 0,
+                "ingestion_counts": {
+                    "entities": {"added": 0, "merged": 0, "skipped_duplicate": 0},
+                    "relationships": {"added": 0, "merged": 0, "skipped_duplicate": 0},
+                    "chunks": {"added": 0, "merged": 0, "skipped_duplicate": 0},
+                },
+                "errors": profile_errors,
+                "warnings": [],
+            }
+
+        existing_chunks = await text_chunks.get_by_ids(list(chunk_upserts))
+        chunk_counts = _classify_chunk_inputs(chunk_upserts, existing_chunks)
+        if chunk_upserts:
+            await safe_vdb_operation_with_exception(
+                operation=lambda payload=chunk_vdb_upserts: chunks_vdb.upsert(payload),
+                operation_name="chunk_upsert",
+                entity_name=document_id,
+            )
+            indexed_vectors = await chunks_vdb.get_vectors_by_ids(list(chunk_vdb_upserts))
+            missing_vector_ids = [
+                vector_id for vector_id in chunk_vdb_upserts if vector_id not in indexed_vectors
+            ]
+            if missing_vector_ids:
+                raise RuntimeError(
+                    f"chunk vector integrity check failed for document `{document_id}`: "
+                    f"{len(missing_vector_ids)} vector(s) missing after upsert"
+                )
+            # Persist chunk text only after its vector is known to exist. This
+            # prevents graph evidence from citing text that cannot be ranked.
+            await text_chunks.upsert(chunk_upserts)
 
         def unresolved_source_ids(record: dict) -> list[str]:
             return [
