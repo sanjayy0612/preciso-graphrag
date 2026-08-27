@@ -9,9 +9,10 @@ from typing import Any
 from core.utils import load_json, logger, write_json
 
 
-def _resolve_working_dir(global_config: dict[str, Any]) -> Path:
+def _resolve_working_dir(global_config: dict[str, Any], workspace: str = "") -> Path:
     working_dir = global_config.get("working_dir") or "GRAPH_IS_HERE"
-    return Path(working_dir).resolve()
+    base_dir = Path(working_dir)
+    return (base_dir / workspace if workspace else base_dir).resolve()
 
 
 def _detect_package(module_name: str) -> bool:
@@ -159,7 +160,8 @@ async def build_runtime_status(
     counts = await _get_graph_counts(storage_instances)
     chunk_stats = await _get_text_chunk_stats(storage_instances)
     pending_summary_count = await _get_pending_summary_count(storage_instances)
-    working_dir = _resolve_working_dir(global_config)
+    workspace = str(getattr(storage_instances.get("graph"), "workspace", "") or "")
+    working_dir = _resolve_working_dir(global_config, workspace)
 
     overall = "ready" if not warnings else "degraded"
     return {
@@ -189,7 +191,8 @@ async def update_artifact_manifest(
 ) -> dict[str, Any] | None:
     try:
         status = await build_runtime_status(storage_instances, global_config)
-        working_dir = _resolve_working_dir(global_config)
+        workspace = str(getattr(storage_instances.get("graph"), "workspace", "") or "")
+        working_dir = _resolve_working_dir(global_config, workspace)
         manifest_path = working_dir / "artifact_manifest.json"
         existing = load_json(str(manifest_path)) or {}
         now = int(time.time())
