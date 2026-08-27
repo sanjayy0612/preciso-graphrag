@@ -383,6 +383,10 @@ def build_global_config(
         # CORE PLUGGABLE FUNCTIONS (can be None or custom implementations)
         # ====================================================================
         "working_dir": str(base_dir),                    # Where to store graph/vector DB data
+        # Dataset profiles are selected by workspace.  The default stays generic
+        # for backwards-compatible finance and general-document ingestion.
+        "dataset_profile": "generic",
+        "workspace_profiles": {"supply_chain": "supply_chain"},
         "llm_model_func": llm_model_func,                # LLM to use (defaults to None = no LLM)
         "embedding_func": embedding_func,                # Embedding model (converts text→vectors)
         "tokenizer": tokenizer,                          # Token counter (GPT-4o-mini or fallback)
