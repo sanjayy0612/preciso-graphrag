@@ -188,6 +188,7 @@ evals/              ← benchmark test cases and results
 | Skill | Path | Use When |
 |-------|------|----------|
 | Financial | `skills/Financial-Graph-Extraction/SKILL.md` | 10-Ks, 10-Qs, earnings calls, analyst reports |
+| Supply chain | `skills/Supply-Chain-Graph-Extraction/SKILL.md` | Facility registers, manufacturing records, bills of materials |
 | Research | `skills/Research-paper-graph-extraction-skill/SKILL.md` | Research papers, scientific literature, academic corpora |
 | General | `skills/General-graph-extraction-skill/SKILL.md` | Codebases, READMEs, wikis, internal docs |
 | Reconciliation | `skills/Reconciliation-Subagent-Skill/SKILL.md` | Cleanup of existing extraction JSON only |
@@ -408,6 +409,7 @@ python3 test/reconcile_manual.py
 | [CONTEXT.md](CONTEXT.md) | Canonical document-lifecycle terminology |
 | [docs/getting-started.md](docs/getting-started.md) | Full setup including embeddings and exports |
 | [docs/skills-guide.md](docs/skills-guide.md) | How to use and write extraction skills |
+| [docs/supply-chain-evaluation.md](docs/supply-chain-evaluation.md) | Frozen synthetic supply-chain evaluation and reproducible demo |
 | [docs/eval-guide.md](docs/eval-guide.md) | How to run evaluation and read results |
 | [docs/architecture.md](docs/architecture.md) | How the system works internally |
 | [docs/faq.md](docs/faq.md) | Common problems and fixes |

@@ -24,7 +24,15 @@ from ingest.transformer import (
     namespace_source_id,
 )
 from ingest.validator import validate_entity, validate_relationship
-from core.profiles import resolve_dataset_profile, validate_profile_records
+from core.profiles import SUPPLY_CHAIN_PROFILE, resolve_dataset_profile, validate_profile_records
+from core.supply_chain import (
+    begin_supply_chain_commit,
+    fail_supply_chain_commit,
+    finish_supply_chain_commit,
+    persist_directed_relationships,
+    persist_snapshot_metadata,
+    validate_snapshot_metadata,
+)
 
 
 def _new_source_ids(records: list[dict[str, Any]]) -> set[str]:
@@ -114,6 +122,9 @@ async def ingest_extracted_json(payload, storage_instances, global_config) -> di
 
 
 async def _ingest_extracted_json(payload, storage_instances, global_config) -> dict:
+    document_id: str | None = None
+    supply_chain_commits = None
+    supply_chain_commit_started = False
     try:
         if not isinstance(payload, dict):
             return {"status": "error", "message": "payload must be an object"}
@@ -258,6 +269,15 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             normalized_relationships,
             resolvable_source_ids=resolvable_chunk_ids,
         )
+        if profile.name == SUPPLY_CHAIN_PROFILE:
+            directed_relationships = storage_instances.get("directed_relationships")
+            supply_chain_metadata = storage_instances.get("supply_chain_metadata")
+            supply_chain_commits = storage_instances.get("supply_chain_commits")
+            if not all((directed_relationships, supply_chain_metadata, supply_chain_commits)):
+                raise RuntimeError("supply-chain workspace is missing directed sidecar storage")
+            profile_errors.extend(
+                await validate_snapshot_metadata(payload, supply_chain_metadata)
+            )
         if profile_errors:
             return {
                 "status": "validation_failed",
@@ -275,6 +295,9 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
                 "errors": profile_errors,
                 "warnings": [],
             }
+        if profile.name == SUPPLY_CHAIN_PROFILE:
+            await begin_supply_chain_commit(supply_chain_commits, document_id)
+            supply_chain_commit_started = True
 
         existing_chunks = await text_chunks.get_by_ids(list(chunk_upserts))
         chunk_counts = _classify_chunk_inputs(chunk_upserts, existing_chunks)
@@ -425,6 +448,15 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             await relation_chunks.index_done_callback()
         if pending_summaries is not None:
             await pending_summaries.index_done_callback()
+        if profile.name == SUPPLY_CHAIN_PROFILE:
+            await persist_directed_relationships(
+                normalized_relationships,
+                document_id=document_id,
+                directed_relationships_storage=directed_relationships,
+            )
+            await persist_snapshot_metadata(payload, supply_chain_metadata)
+            await finish_supply_chain_commit(supply_chain_commits, document_id)
+            supply_chain_commit_started = False
         await update_artifact_manifest(storage_instances, global_config)
 
         status = "success" if not errors else "partial_success"
@@ -448,5 +480,10 @@ async def _ingest_extracted_json(payload, storage_instances, global_config) -> d
             result["summary_events"] = pipeline_status["summary_events"]
         return result
     except Exception as exc:
+        if supply_chain_commit_started and supply_chain_commits is not None and document_id is not None:
+            try:
+                await fail_supply_chain_commit(supply_chain_commits, document_id, str(exc))
+            except Exception:
+                logger.exception("Failed to mark supply-chain ingestion as failed (document_id=%s)", document_id)
         logger.exception("ingest_extracted_json failed (document_id=%s)", payload.get("document_id"))
         return {"status": "error", "message": str(exc)}

@@ -1,0 +1,84 @@
+{
+  "snapshot_effective_date": "2026-01-15",
+  "entities": [
+    {
+      "canonical_id": "company:arkon-components",
+      "entity_type": "COMPANY",
+      "display_name": "Arkon Components",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "facility:arkon-components:northbridge",
+      "entity_type": "FACILITY",
+      "display_name": "Northbridge Fabrication Facility",
+      "documented_aliases": [
+        {
+          "alias": "Northbridge Site",
+          "evidence": "sources/facility_register.md#facility_001"
+        }
+      ]
+    },
+    {
+      "canonical_id": "facility:arkon-components:lakeside",
+      "entity_type": "FACILITY",
+      "display_name": "Lakeside Power Module Facility",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "company:redwood-materials",
+      "entity_type": "COMPANY",
+      "display_name": "Redwood Materials",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "facility:redwood-materials:harbor",
+      "entity_type": "FACILITY",
+      "display_name": "Harbor Casting Works",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "component:arkon-components:control-unit-c17",
+      "entity_type": "COMPONENT",
+      "display_name": "Control Unit C-17",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "component:arkon-components:power-module-p9",
+      "entity_type": "COMPONENT",
+      "display_name": "Power Module P-9",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "component:redwood-materials:valve-body-v2",
+      "entity_type": "COMPONENT",
+      "display_name": "Valve Body V-2",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "product:aquapump:300",
+      "entity_type": "PRODUCT",
+      "display_name": "AquaPump 300",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "product:aquapump:500",
+      "entity_type": "PRODUCT",
+      "display_name": "AquaPump 500",
+      "documented_aliases": []
+    },
+    {
+      "canonical_id": "product:valvepro:10",
+      "entity_type": "PRODUCT",
+      "display_name": "ValvePro 10",
+      "documented_aliases": []
+    }
+  ],
+  "ambiguous_aliases": [
+    {
+      "alias": "Plant 7",
+      "status": "unresolved",
+      "policy": "do_not_merge",
+      "evidence": "sources/identity_notice.md#identity_001"
+    }
+  ]
+}

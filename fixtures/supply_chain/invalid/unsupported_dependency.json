@@ -1,0 +1,13 @@
+{
+  "document_id": "invalid_unsupported_dependency",
+  "chunks": [
+    {"chunk_id": "evidence_001", "content": "This intentionally invalid example has an unsupported dependency."}
+  ],
+  "entities": [
+    {"entity_name": "company:example", "entity_type": "COMPANY", "description": "Example company.", "source_id": "evidence_001"},
+    {"entity_name": "product:example:1", "entity_type": "PRODUCT", "description": "Example product.", "source_id": "evidence_001"}
+  ],
+  "relationships": [
+    {"src_id": "company:example", "tgt_id": "product:example:1", "keywords": "USED_IN", "description": "This direction and endpoint combination is invalid.", "source_id": "evidence_001"}
+  ]
+}

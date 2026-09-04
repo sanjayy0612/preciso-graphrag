@@ -1,0 +1,25 @@
+{
+  "command": "python3 -m evals.supply_chain_eval run-curated --output evals/results/supply_chain_stage4_results.json",
+  "protocol_version": "1.0",
+  "traversal_correctness_curated_extraction": {
+    "label": "not end-to-end accuracy",
+    "exact_path_precision": 1.0,
+    "exact_path_recall": 1.0,
+    "product_precision": 1.0,
+    "product_recall": 1.0,
+    "edge_evidence_recall": 1.0,
+    "negative_cases_passed": ["ambiguous_plant_7", "missing_bom_evidence"]
+  },
+  "actual_extraction_end_to_end": {
+    "status": "blocked",
+    "model": null,
+    "run_count": 0,
+    "reason": "No repository-owned agent/model execution mechanism is configured."
+  },
+  "retrieval_comparison": {
+    "method": "existing chunks_vdb with deterministic lexical fallback embedding; unchanged question; top_k=2; no answer generation",
+    "evidence_precision": 0.5,
+    "evidence_recall": 0.5,
+    "questions_with_all_path_evidence": "1/3"
+  }
+}

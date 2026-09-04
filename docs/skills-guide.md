@@ -47,6 +47,20 @@ This review must happen before the agent reads and extracts the corpus. Extracti
 
 **Location:** `skills/General-graph-extraction-skill/SKILL.md`
 
+### Supply-Chain-Graph-Extraction
+
+**When to use:** Approved facility registers, manufacturing records, and bills
+of materials that need facility → component → product dependency mapping.
+
+**What it extracts:** Companies, facilities, components, products, and only
+the `OPERATES`, `MANUFACTURES`, and `USED_IN` relationships supported by source
+chunks.
+
+**Structure:** Canonical-ID registry required; strict `supply_chain` workspace;
+no orders, inventory, forecasts, severity, or live-data claims.
+
+**Location:** `skills/Supply-Chain-Graph-Extraction/SKILL.md`
+
 ## Writing your own skill
 
 ### Why write one

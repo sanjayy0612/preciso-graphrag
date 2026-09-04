@@ -1,0 +1,68 @@
+{
+  "document_id": "synthetic_supply_chain_snapshot_2026_01_15",
+  "file_path": "fixtures/supply_chain/sources",
+  "snapshot_effective_date": "2026-01-15",
+  "chunks": [
+    {
+      "chunk_id": "facility_001",
+      "content": "Arkon Components operates Northbridge Fabrication Facility. In this snapshot, the phrase Northbridge Site refers to that same facility. Northbridge Fabrication Facility manufactures Control Unit C-17.",
+      "chunk_order_index": 1,
+      "file_path": "fixtures/supply_chain/sources/facility_register.md"
+    },
+    {
+      "chunk_id": "facility_002",
+      "content": "Arkon Components operates Lakeside Power Module Facility. Lakeside Power Module Facility manufactures Power Module P-9.",
+      "chunk_order_index": 2,
+      "file_path": "fixtures/supply_chain/sources/facility_register.md"
+    },
+    {
+      "chunk_id": "facility_003",
+      "content": "Redwood Materials operates Harbor Casting Works. Harbor Casting Works manufactures Valve Body V-2.",
+      "chunk_order_index": 3,
+      "file_path": "fixtures/supply_chain/sources/facility_register.md"
+    },
+    {
+      "chunk_id": "bom_001",
+      "content": "Control Unit C-17 is used in AquaPump 300 and AquaPump 500.",
+      "chunk_order_index": 4,
+      "file_path": "fixtures/supply_chain/sources/product_bom.md"
+    },
+    {
+      "chunk_id": "bom_002",
+      "content": "Power Module P-9 is used in AquaPump 500.",
+      "chunk_order_index": 5,
+      "file_path": "fixtures/supply_chain/sources/product_bom.md"
+    },
+    {
+      "chunk_id": "bom_003",
+      "content": "Valve Body V-2 is used in ValvePro 10.",
+      "chunk_order_index": 6,
+      "file_path": "fixtures/supply_chain/sources/product_bom.md"
+    }
+  ],
+  "entities": [
+    {"entity_name": "company:arkon-components", "entity_type": "COMPANY", "description": "Arkon Components; effective snapshot 2026-01-15.", "source_id": "facility_001", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "facility:arkon-components:northbridge", "entity_type": "FACILITY", "description": "Northbridge Fabrication Facility, operated by Arkon Components; documented alias=Northbridge Site; effective snapshot 2026-01-15.", "source_id": "facility_001", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "facility:arkon-components:lakeside", "entity_type": "FACILITY", "description": "Lakeside Power Module Facility, operated by Arkon Components; effective snapshot 2026-01-15.", "source_id": "facility_002", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "company:redwood-materials", "entity_type": "COMPANY", "description": "Redwood Materials; effective snapshot 2026-01-15.", "source_id": "facility_003", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "facility:redwood-materials:harbor", "entity_type": "FACILITY", "description": "Harbor Casting Works, operated by Redwood Materials; effective snapshot 2026-01-15.", "source_id": "facility_003", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "component:arkon-components:control-unit-c17", "entity_type": "COMPONENT", "description": "Control Unit C-17, manufactured at Northbridge Fabrication Facility; effective snapshot 2026-01-15.", "source_id": "facility_001", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "component:arkon-components:power-module-p9", "entity_type": "COMPONENT", "description": "Power Module P-9, manufactured at Lakeside Power Module Facility; effective snapshot 2026-01-15.", "source_id": "facility_002", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "component:redwood-materials:valve-body-v2", "entity_type": "COMPONENT", "description": "Valve Body V-2, manufactured at Harbor Casting Works; effective snapshot 2026-01-15.", "source_id": "facility_003", "file_path": "fixtures/supply_chain/sources/facility_register.md"},
+    {"entity_name": "product:aquapump:300", "entity_type": "PRODUCT", "description": "AquaPump 300 uses Control Unit C-17; effective snapshot 2026-01-15.", "source_id": "bom_001", "file_path": "fixtures/supply_chain/sources/product_bom.md"},
+    {"entity_name": "product:aquapump:500", "entity_type": "PRODUCT", "description": "AquaPump 500 uses Control Unit C-17 and Power Module P-9; effective snapshot 2026-01-15.", "source_id": "bom_001", "file_path": "fixtures/supply_chain/sources/product_bom.md"},
+    {"entity_name": "product:valvepro:10", "entity_type": "PRODUCT", "description": "ValvePro 10 uses Valve Body V-2; effective snapshot 2026-01-15.", "source_id": "bom_003", "file_path": "fixtures/supply_chain/sources/product_bom.md"}
+  ],
+  "relationships": [
+    {"src_id": "company:arkon-components", "tgt_id": "facility:arkon-components:northbridge", "keywords": "OPERATES", "description": "Arkon Components operates Northbridge Fabrication Facility; effective snapshot 2026-01-15.", "source_id": "facility_001", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "company:arkon-components", "tgt_id": "facility:arkon-components:lakeside", "keywords": "OPERATES", "description": "Arkon Components operates Lakeside Power Module Facility; effective snapshot 2026-01-15.", "source_id": "facility_002", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "company:redwood-materials", "tgt_id": "facility:redwood-materials:harbor", "keywords": "OPERATES", "description": "Redwood Materials operates Harbor Casting Works; effective snapshot 2026-01-15.", "source_id": "facility_003", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "facility:arkon-components:northbridge", "tgt_id": "component:arkon-components:control-unit-c17", "keywords": "MANUFACTURES", "description": "Northbridge Fabrication Facility manufactures Control Unit C-17; effective snapshot 2026-01-15.", "source_id": "facility_001", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "facility:arkon-components:lakeside", "tgt_id": "component:arkon-components:power-module-p9", "keywords": "MANUFACTURES", "description": "Lakeside Power Module Facility manufactures Power Module P-9; effective snapshot 2026-01-15.", "source_id": "facility_002", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "facility:redwood-materials:harbor", "tgt_id": "component:redwood-materials:valve-body-v2", "keywords": "MANUFACTURES", "description": "Harbor Casting Works manufactures Valve Body V-2; effective snapshot 2026-01-15.", "source_id": "facility_003", "file_path": "fixtures/supply_chain/sources/facility_register.md", "weight": 1.0},
+    {"src_id": "component:arkon-components:control-unit-c17", "tgt_id": "product:aquapump:300", "keywords": "USED_IN", "description": "Control Unit C-17 is used in AquaPump 300; effective snapshot 2026-01-15.", "source_id": "bom_001", "file_path": "fixtures/supply_chain/sources/product_bom.md", "weight": 1.0},
+    {"src_id": "component:arkon-components:control-unit-c17", "tgt_id": "product:aquapump:500", "keywords": "USED_IN", "description": "Control Unit C-17 is used in AquaPump 500; effective snapshot 2026-01-15.", "source_id": "bom_001", "file_path": "fixtures/supply_chain/sources/product_bom.md", "weight": 1.0},
+    {"src_id": "component:arkon-components:power-module-p9", "tgt_id": "product:aquapump:500", "keywords": "USED_IN", "description": "Power Module P-9 is used in AquaPump 500; effective snapshot 2026-01-15.", "source_id": "bom_002", "file_path": "fixtures/supply_chain/sources/product_bom.md", "weight": 1.0},
+    {"src_id": "component:redwood-materials:valve-body-v2", "tgt_id": "product:valvepro:10", "keywords": "USED_IN", "description": "Valve Body V-2 is used in ValvePro 10; effective snapshot 2026-01-15.", "source_id": "bom_003", "file_path": "fixtures/supply_chain/sources/product_bom.md", "weight": 1.0}
+  ]
+}

@@ -15,6 +15,7 @@ from core.query import kg_query
 from core.profiles import SUPPLY_CHAIN_WORKSPACE
 from core.runtime_status import update_artifact_manifest
 from core.storage.base import QueryParam
+from core.supply_chain import query_facility_unavailable
 from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
 from ingest.validator import validate_extraction_structure
@@ -500,6 +501,32 @@ async def query_graph_tool(
         }
     except Exception as exc:
         logger.exception("query_graph_tool failed (mode=%s)", mode)
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool(
+    name="query_facility_unavailable",
+    description=(
+        "Evaluate a hypothetical facility-unavailable scenario against documented "
+        "supply-chain dependencies. Returns deterministic FACILITY → COMPONENT → PRODUCT "
+        "paths with source evidence; it does not predict delay or severity."
+    ),
+)
+async def query_facility_unavailable_tool(
+    facility_id: str,
+    max_paths: int = 100,
+    workspace: Literal["supply_chain"] = SUPPLY_CHAIN_WORKSPACE,
+) -> dict:
+    try:
+        instances = await _get_workspace_storage_instances(workspace)
+        return await query_facility_unavailable(
+            facility_id,
+            instances,
+            global_config,
+            max_paths=max_paths,
+        )
+    except Exception as exc:
+        logger.exception("query_facility_unavailable_tool failed")
         return {"status": "error", "message": str(exc)}
 
 

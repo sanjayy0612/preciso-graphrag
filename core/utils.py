@@ -87,7 +87,9 @@ def load_json(file_name: str) -> dict[str, Any] | None:
 def write_json(data: dict[str, Any], file_name: str) -> bool:
     path = Path(file_name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary_path, path)
     return True
 
 

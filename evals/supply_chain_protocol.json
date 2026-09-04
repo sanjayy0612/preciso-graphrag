@@ -1,0 +1,58 @@
+{
+  "protocol_version": "1.0",
+  "frozen_on": "2026-08-27",
+  "corpus": "fixtures/supply_chain/sources",
+  "snapshot_effective_date": "2026-01-15",
+  "retrieval": {
+    "method": "existing chunks_vdb lexical fallback embedding",
+    "query_construction": "question text unchanged",
+    "top_k": 2,
+    "answer_generation": "none; this baseline measures retrieval of required evidence, not path answers"
+  },
+  "dependency_questions": [
+    {
+      "id": "northbridge",
+      "facility_id": "facility:arkon-components:northbridge",
+      "question": "If Northbridge Fabrication Facility is unavailable, which documented products are potentially exposed?",
+      "expected_paths": [
+        ["facility:arkon-components:northbridge", "component:arkon-components:control-unit-c17", "product:aquapump:300"],
+        ["facility:arkon-components:northbridge", "component:arkon-components:control-unit-c17", "product:aquapump:500"]
+      ],
+      "excluded_products": ["product:valvepro:10"],
+      "required_chunks": ["facility_001", "bom_001"]
+    },
+    {
+      "id": "lakeside",
+      "facility_id": "facility:arkon-components:lakeside",
+      "question": "If Lakeside Power Module Facility is unavailable, which documented products are potentially exposed?",
+      "expected_paths": [
+        ["facility:arkon-components:lakeside", "component:arkon-components:power-module-p9", "product:aquapump:500"]
+      ],
+      "excluded_products": ["product:aquapump:300", "product:valvepro:10"],
+      "required_chunks": ["facility_002", "bom_002"]
+    },
+    {
+      "id": "harbor",
+      "facility_id": "facility:redwood-materials:harbor",
+      "question": "If Harbor Casting Works is unavailable, which documented products are potentially exposed?",
+      "expected_paths": [
+        ["facility:redwood-materials:harbor", "component:redwood-materials:valve-body-v2", "product:valvepro:10"]
+      ],
+      "excluded_products": ["product:aquapump:300", "product:aquapump:500"],
+      "required_chunks": ["facility_003", "bom_003"]
+    }
+  ],
+  "negative_cases": [
+    {
+      "id": "ambiguous_plant_7",
+      "facility_id": "Plant 7",
+      "expected_status": "unknown_facility"
+    },
+    {
+      "id": "missing_bom_evidence",
+      "facility_id": "facility:arkon-components:northbridge",
+      "remove_chunk": "bom_001",
+      "expected_status": "inconsistent_evidence"
+    }
+  ]
+}

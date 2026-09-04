@@ -1,0 +1,40 @@
+{
+  "snapshot_effective_date": "2026-01-15",
+  "entities": [
+    "company:arkon-components",
+    "facility:arkon-components:northbridge",
+    "facility:arkon-components:lakeside",
+    "company:redwood-materials",
+    "facility:redwood-materials:harbor",
+    "component:arkon-components:control-unit-c17",
+    "component:arkon-components:power-module-p9",
+    "component:redwood-materials:valve-body-v2",
+    "product:aquapump:300",
+    "product:aquapump:500",
+    "product:valvepro:10"
+  ],
+  "relationships": [
+    {"src_id": "company:arkon-components", "type": "OPERATES", "tgt_id": "facility:arkon-components:northbridge", "evidence": "facility_001"},
+    {"src_id": "company:arkon-components", "type": "OPERATES", "tgt_id": "facility:arkon-components:lakeside", "evidence": "facility_002"},
+    {"src_id": "company:redwood-materials", "type": "OPERATES", "tgt_id": "facility:redwood-materials:harbor", "evidence": "facility_003"},
+    {"src_id": "facility:arkon-components:northbridge", "type": "MANUFACTURES", "tgt_id": "component:arkon-components:control-unit-c17", "evidence": "facility_001"},
+    {"src_id": "facility:arkon-components:lakeside", "type": "MANUFACTURES", "tgt_id": "component:arkon-components:power-module-p9", "evidence": "facility_002"},
+    {"src_id": "facility:redwood-materials:harbor", "type": "MANUFACTURES", "tgt_id": "component:redwood-materials:valve-body-v2", "evidence": "facility_003"},
+    {"src_id": "component:arkon-components:control-unit-c17", "type": "USED_IN", "tgt_id": "product:aquapump:300", "evidence": "bom_001"},
+    {"src_id": "component:arkon-components:control-unit-c17", "type": "USED_IN", "tgt_id": "product:aquapump:500", "evidence": "bom_001"},
+    {"src_id": "component:arkon-components:power-module-p9", "type": "USED_IN", "tgt_id": "product:aquapump:500", "evidence": "bom_002"},
+    {"src_id": "component:redwood-materials:valve-body-v2", "type": "USED_IN", "tgt_id": "product:valvepro:10", "evidence": "bom_003"}
+  ],
+  "expected_facility_to_product_paths": [
+    {
+      "facility": "facility:arkon-components:northbridge",
+      "products": ["product:aquapump:300", "product:aquapump:500"],
+      "must_not_include": ["product:valvepro:10"]
+    },
+    {
+      "facility": "facility:redwood-materials:harbor",
+      "products": ["product:valvepro:10"],
+      "must_not_include": ["product:aquapump:300", "product:aquapump:500"]
+    }
+  ]
+}

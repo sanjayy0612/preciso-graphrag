@@ -3,12 +3,13 @@ from __future__ import annotations
 from core.storage.graph_store import NetworkXStorage
 from core.storage.kv_store import JsonKVStorage
 from core.storage.vector_store import NanoVectorDBStorage
+from core.profiles import SUPPLY_CHAIN_PROFILE, resolve_dataset_profile
 
 
 def build_storage_instances(global_config: dict, workspace: str = "") -> dict:
     embedding_func = global_config["embedding_func"]
     shared_kwargs = {"workspace": workspace, "global_config": global_config}
-    return {
+    storage_instances = {
         "graph": NetworkXStorage(
             namespace="graph",
             embedding_func=None,
@@ -72,6 +73,21 @@ def build_storage_instances(global_config: dict, workspace: str = "") -> dict:
             **shared_kwargs,
         ),
     }
+    if resolve_dataset_profile(global_config, workspace).name == SUPPLY_CHAIN_PROFILE:
+        storage_instances.update(
+            {
+                "directed_relationships": JsonKVStorage(
+                    namespace="directed_relationships", embedding_func=None, **shared_kwargs
+                ),
+                "supply_chain_metadata": JsonKVStorage(
+                    namespace="supply_chain_metadata", embedding_func=None, **shared_kwargs
+                ),
+                "supply_chain_commits": JsonKVStorage(
+                    namespace="supply_chain_commits", embedding_func=None, **shared_kwargs
+                ),
+            }
+        )
+    return storage_instances
 
 
 async def initialize_storage_instances(storage_instances: dict) -> None:
