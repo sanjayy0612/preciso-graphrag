@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Literal
 
 # Run as `python -m preciso_mcp.server` from the repo root, or after
@@ -28,7 +29,10 @@ from preciso_mcp.tools.status_tool import get_server_status
 
 tokenizer = BasicTokenizer()
 global_config = build_global_config(
-    working_dir="GRAPH_IS_HERE",  # Custom folder for graph storage
+    # Leave the path configurable for an external MCP client.  Passing the old
+    # literal here bypassed build_global_config's GRAPHRAG_MCP_WORKDIR support,
+    # causing every server process to write into the checkout's fixed folder.
+    working_dir=os.getenv("GRAPHRAG_MCP_WORKDIR") or None,
     tokenizer=tokenizer,
     embedding_func=None,  # populated in initialize_runtime(); building it may probe Ollama
 )
