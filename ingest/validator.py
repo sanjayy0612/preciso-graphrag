@@ -15,7 +15,10 @@ def validate_extraction_structure(payload: Any) -> list[str]:
         if field not in payload:
             errors.append(f"missing required field `{field}`")
 
-    if "document_id" in payload and not str(payload.get("document_id", "")).strip():
+    if "document_id" in payload and (
+        not isinstance(payload.get("document_id"), str)
+        or not payload.get("document_id", "").strip()
+    ):
         errors.append("`document_id` must be a non-empty string")
     if "entities" in payload and not isinstance(payload.get("entities"), list):
         errors.append("`entities` must be a list")

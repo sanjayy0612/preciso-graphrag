@@ -21,7 +21,11 @@ from core.utils import BasicTokenizer, logger
 from ingest.pipeline import ingest_extracted_json
 from ingest.validator import validate_extraction_structure
 from preciso_mcp.tools.export_tool import export_to_neo4j, export_to_qdrant
-from preciso_mcp.tools.ingest_from_file_tool import ingest_from_file, reingest_from_file
+from preciso_mcp.tools.ingest_from_file_tool import (
+    ingest_from_file,
+    reingest_from_file,
+    validate_extraction as validate_extraction_file,
+)
 from preciso_mcp.tools.pending_summaries_tool import list_pending_summaries, submit_summary
 from preciso_mcp.tools.reconcile_tool import ingest_with_reconciliation
 from preciso_mcp.tools.status_tool import get_server_status
@@ -254,6 +258,22 @@ async def ingest_from_file_tool(
     """
     instances = await _get_workspace_storage_instances(workspace)
     return await ingest_from_file(file_path, instances, global_config)
+
+
+@mcp.tool(
+    name="validate_extraction",
+    description=(
+        "Validate an extraction against PRECISO ingestion, evidence and workspace "
+        "profile rules without modifying graph artifacts."
+    ),
+)
+async def validate_extraction(
+    file_path: str,
+    workspace: Literal["supply_chain"] | None = None,
+) -> dict:
+    """Check whether an extraction file would be accepted by ingestion."""
+    instances = await _get_workspace_storage_instances(workspace)
+    return await validate_extraction_file(file_path, instances, global_config)
 
 
 @mcp.tool(

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ingest.parser import parse_markdown_extraction
-from ingest.pipeline import ingest_extracted_json
+from ingest.pipeline import ingest_extracted_json, preflight_extraction
 from ingest.validator import validate_extraction_structure
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +47,64 @@ async def reingest_from_file(file_path: str, storage_instances: dict, global_con
     """
 
     return await _ingest_file(file_path, storage_instances, global_config)
+
+
+async def validate_extraction(
+    file_path: str, storage_instances: dict, global_config: dict
+) -> dict:
+    """Validate a file with ingestion's non-mutating preflight only."""
+    resolved_path = _resolve_file_path(file_path)
+    workspace = getattr(storage_instances.get("graph"), "workspace", "") or None
+    if not resolved_path.exists() or not resolved_path.is_file():
+        return {
+            "status": "error",
+            "workspace": workspace,
+            "profile": _profile_name(storage_instances, global_config),
+            "file_path": str(file_path),
+            "errors": ["file not found"],
+            "warnings": [],
+        }
+
+    try:
+        payload = _load_payload(resolved_path)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "workspace": workspace,
+            "profile": _profile_name(storage_instances, global_config),
+            "file_path": str(file_path),
+            "errors": [str(exc)],
+            "warnings": [],
+        }
+
+    structure_errors = validate_extraction_structure(payload)
+    if structure_errors:
+        return {
+            "status": "validation_failed",
+            "workspace": workspace,
+            "profile": _profile_name(storage_instances, global_config),
+            "document_id": str(payload.get("document_id", "")).strip() or None,
+            "file_path": str(file_path),
+            "counts": _payload_counts(payload),
+            "errors": structure_errors,
+            "warnings": [],
+        }
+
+    normalized_payload = _normalize_payload(payload, resolved_path)
+    preflight = await preflight_extraction(
+        normalized_payload, storage_instances, global_config
+    )
+    errors = preflight["errors"]
+    return {
+        "status": "valid" if not errors else "validation_failed",
+        "workspace": preflight["workspace"],
+        "profile": preflight["profile"].name,
+        "document_id": preflight["document_id"],
+        "file_path": str(file_path),
+        "counts": preflight["counts"],
+        "errors": errors,
+        "warnings": preflight["warnings"],
+    }
 
 
 async def _ingest_file(file_path: str, storage_instances: dict, global_config: dict) -> dict:
@@ -202,3 +260,18 @@ def _infer_source_file_from_chunks(chunks: Any) -> str | None:
             if file_path:
                 return file_path
     return None
+
+
+def _payload_counts(payload: dict[str, Any]) -> dict[str, int]:
+    return {
+        "chunks": len(payload.get("chunks", [])) if isinstance(payload.get("chunks"), list) else 0,
+        "entities": len(payload.get("entities", [])) if isinstance(payload.get("entities"), list) else 0,
+        "relationships": len(payload.get("relationships", [])) if isinstance(payload.get("relationships"), list) else 0,
+    }
+
+
+def _profile_name(storage_instances: dict, global_config: dict) -> str:
+    from core.profiles import resolve_dataset_profile
+
+    workspace = getattr(storage_instances.get("graph"), "workspace", "")
+    return resolve_dataset_profile(global_config, workspace).name
